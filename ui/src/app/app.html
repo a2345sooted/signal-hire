@@ -1,0 +1,258 @@
+<header class="main-header">
+  <div class="header-content">
+    <a routerLink="/" class="logo">{{ title }}</a>
+  </div>
+</header>
+
+<div class="container">
+  <router-outlet></router-outlet>
+
+  <div *ngIf="!isRouteActive()" class="main-layout">
+    <!-- Left Column: Job List -->
+    <div class="job-list-column">
+      <div class="column-header">
+        <h2 class="column-title">Jobs</h2>
+        <button mat-flat-button color="primary" class="create-btn" routerLink="/jobs/create">
+          <mat-icon>add</mat-icon> Create
+        </button>
+      </div>
+
+      <mat-nav-list class="job-nav-list">
+        <a mat-list-item
+           *ngFor="let job of jobs"
+           [activated]="selectedJob?.id === job.id"
+           (click)="selectJob(job)">
+          <span matListItemTitle>{{ job.job_title }}</span>
+          <span matListItemLine>{{ job.department }}</span>
+        </a>
+      </mat-nav-list>
+
+      <div *ngIf="jobs.length === 0" class="empty-state-mini">
+        <p>No jobs found.</p>
+      </div>
+    </div>
+
+    <!-- Middle Column: Job Details (Markdown) -->
+    <div class="job-details-column">
+      <div *ngIf="selectedJob" class="details-content">
+        <div class="details-header">
+          <h1 class="details-title">{{ selectedJob.job_title }}</h1>
+          <mat-chip-set>
+            <mat-chip>{{ selectedJob.department }}</mat-chip>
+          </mat-chip-set>
+        </div>
+
+        <mat-divider></mat-divider>
+
+        <div class="markdown-container" [innerHTML]="selectedJob.markdown_text"></div>
+      </div>
+
+      <div *ngIf="!selectedJob" class="empty-state">
+        <mat-icon>work_outline</mat-icon>
+        <p>Select a job to view details</p>
+      </div>
+    </div>
+
+    <!-- Right Column: Resumes -->
+    <div class="resume-list-column">
+      <div class="column-header">
+        <h2 class="column-title">Resumes</h2>
+        <button *ngIf="selectedJob" mat-stroked-button color="primary" class="upload-btn" (click)="uploadResume()">
+          <mat-icon>upload</mat-icon> Upload
+        </button>
+      </div>
+
+      <div *ngIf="selectedJob">
+        <mat-selection-list [multiple]="false" class="resume-list">
+          <mat-list-item *ngFor="let resume of selectedJob.resumes"
+                         [routerLink]="resume.analysis_id ? ['/analysis', resume.analysis_id] : ['/resume', resume.id, 'analysis']">
+            <span matListItemTitle>{{ resume.original_filename }}</span>
+            <span matListItemLine *ngIf="resume.structured_data?.rank">
+              Rank: {{ resume.structured_data.rank }}
+            </span>
+            <mat-icon matListItemMeta>chevron_right</mat-icon>
+          </mat-list-item>
+        </mat-selection-list>
+
+        <div *ngIf="!selectedJob.resumes || selectedJob.resumes.length === 0" class="empty-state-mini">
+          <p>No resumes uploaded yet.</p>
+        </div>
+      </div>
+
+      <div *ngIf="!selectedJob" class="empty-state">
+        <mat-icon>description</mat-icon>
+        <p>Select a job to see resumes</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .main-header {
+    background-color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    padding: 16px 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    width: 100%;
+  }
+
+  .header-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .logo {
+    font-family: 'Merriweather', serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    text-decoration: none;
+    letter-spacing: -0.02em;
+  }
+
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    height: calc(100vh - 80px);
+    box-sizing: border-box;
+  }
+
+  .main-layout {
+    display: flex;
+    gap: 24px;
+    height: 100%;
+  }
+
+  /* Column Styles */
+  .job-list-column, .job-details-column, .resume-list-column {
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+  }
+
+  .job-list-column { flex: 0 0 300px; }
+  .job-details-column { flex: 1; overflow-y: auto; }
+  .resume-list-column { flex: 0 0 320px; }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 12px;
+      height: auto;
+    }
+    .main-layout {
+      flex-direction: column;
+    }
+    .job-details-column, .resume-list-column {
+      display: none;
+    }
+    .job-list-column {
+      flex: 1 1 auto;
+      width: 100%;
+    }
+    .header-content {
+      padding: 0 16px;
+    }
+  }
+
+  .column-header {
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    background: #fdfdfd;
+  }
+
+  .column-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-main);
+  }
+
+  /* Job List Styles */
+  .job-nav-list {
+    padding-top: 0;
+    overflow-y: auto;
+  }
+
+  /* Job Details Styles */
+  .details-content {
+    padding: 32px;
+  }
+
+  .details-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+  }
+
+  .details-title {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--text-main);
+  }
+
+  .markdown-container {
+    margin-top: 24px;
+    font-size: 1.05rem;
+    line-height: 1.6;
+    color: #333;
+    white-space: pre-wrap;
+  }
+
+  /* Resume Styles */
+  .resume-list {
+    overflow-y: auto;
+  }
+
+  /* Highlight Styles from Backend Markdown */
+  :host ::ng-deep .hl-green { background-color: #d1fae5; color: #065f46; padding: 0 2px; border-radius: 2px; font-weight: 500; }
+  :host ::ng-deep .hl-yellow { background-color: #fef3c7; color: #92400e; padding: 0 2px; border-radius: 2px; font-weight: 500; }
+  :host ::ng-deep .hl-blue { background-color: #dbeafe; color: #1e40af; padding: 0 2px; border-radius: 2px; font-weight: 500; }
+
+  /* Empty State Styles */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+    padding: 40px;
+    text-align: center;
+  }
+
+  .empty-state mat-icon {
+    font-size: 48px;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+
+  .empty-state-mini {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
+  .create-btn, .upload-btn {
+    border-radius: 8px;
+    font-weight: 600;
+  }
+
+  .arrow-icon {
+    color: var(--text-secondary);
+  }
+</style>
