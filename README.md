@@ -14,14 +14,12 @@ This is an exploration project focused on **LangChain**, **LangGraph**, and **ag
 - **Backend:** FastAPI (Python 3.11+)
 - **AI Orchestration:** LangGraph & LangChain
 - **Database:** PostgreSQL with pgvector
-- **Frontend:** Angular 19+ (Angular Material)
 - **Infrastructure:** Docker Compose (Postgres, MinIO, Flyway)
 
 ## 🚀 Setup & Execution
 
 ### Prerequisites
 - Python 3.11+
-- Node.js & npm
 - Docker and Docker Compose
 - **OpenAI API Key** (Set in `.env`)
 
@@ -30,31 +28,25 @@ This is an exploration project focused on **LangChain**, **LangGraph**, and **ag
 docker-compose up -d
 ```
 
-### 2. Frontend Build
-Since the FastAPI server serves the UI, you need to build the Angular application first:
+### 2. Backend Server
 ```bash
-cd ui
-npm install
-npm run build
-cd ..
-```
-
-### 3. Backend & UI Server
-```bash
-cd server
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn src.main:app --reload
 ```
-The application will be available at `http://localhost:8000`.
+The API will be available at `http://localhost:8000`.
 
-> **Note for Frontend Development:** If you are actively developing the UI, you can still run `npm start` in the `ui` directory to use the Angular development server at `http://localhost:4200` with hot-reloading.
+### 3. Environment Variables
+Create a `.env` file in the root directory and add the following:
+- `OPENAI_API_KEY`: Your OpenAI API key.
+- `DATABASE_URL`: PostgreSQL connection string.
+- `AUTH0_DOMAIN`: Your Auth0 domain (e.g., `dev-xxx.us.auth0.com`).
+- `AUTH0_AUDIENCE`: Your Auth0 API Identifier.
 
 ## 📂 Structure
-- `server/src/agents/`: Core LangGraph agent definitions.
-- `server/src/services/`: Document parsing, embeddings, and storage logic.
-- `ui/src/app/`: Angular frontend implementation.
+- `src/agents/`: Core LangGraph agent definitions.
+- `src/services/`: Document parsing, embeddings, and storage logic.
 
 ---
 *Note: This is not a production-ready application. It is an experimental codebase for agentic AI research.*
