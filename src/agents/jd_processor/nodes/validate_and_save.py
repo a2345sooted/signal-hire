@@ -93,7 +93,6 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         structured_data=structured_data_dict,
                         embedding=embedding,
                         markdown_content=markdown_content,
-                        department=state.get("department"),
                         org_id=state.get("org_id")
                     )
                 else:
@@ -106,7 +105,6 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         structured_data=structured_data_dict,
                         embedding=embedding,
                         markdown_content=markdown_content,
-                        department=state.get("department"),
                         org_id=state.get("org_id")
                     )
             else:

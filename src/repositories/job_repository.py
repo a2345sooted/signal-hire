@@ -18,18 +18,32 @@ class JobRepository:
         embedding: Optional[List[float]] = None,
         title: Optional[str] = None,
         markdown_content: Optional[str] = None,
-        department: Optional[str] = None,
-        org_id: Optional[uuid.UUID] = None
+        org_id: Optional[uuid.UUID] = None,
+        location: Optional[str] = None,
+        work_arrangement: Optional[str] = None,
+        hybrid_days_per_week: Optional[int] = None,
+        pay_range_min: Optional[int] = None,
+        pay_range_max: Optional[int] = None,
+        pay_type: Optional[str] = None,
+        employment_type: Optional[str] = None,
+        offers_relocation: bool = False
     ) -> uuid.UUID:
         """Insert a new job with its embedding"""
         job = Job(
             title=title,
             raw_text=raw_text,
             markdown_content=markdown_content,
-            department=department,
             structured_data=structured_data,
             embedding=embedding,
-            org_id=org_id
+            org_id=org_id,
+            location=location,
+            work_arrangement=work_arrangement,
+            hybrid_days_per_week=hybrid_days_per_week,
+            pay_range_min=pay_range_min,
+            pay_range_max=pay_range_max,
+            pay_type=pay_type,
+            employment_type=employment_type,
+            offers_relocation=offers_relocation
         )
         self.session.add(job)
         await self.session.flush()
@@ -43,7 +57,6 @@ class JobRepository:
         embedding: Optional[List[float]] = None,
         title: Optional[str] = None,
         markdown_content: Optional[str] = None,
-        department: Optional[str] = None,
         org_id: Optional[uuid.UUID] = None
     ) -> uuid.UUID:
         """Insert a new job with a specific ID"""
@@ -52,7 +65,6 @@ class JobRepository:
             title=title,
             raw_text=raw_text,
             markdown_content=markdown_content,
-            department=department,
             structured_data=structured_data,
             embedding=embedding,
             org_id=org_id
@@ -68,8 +80,16 @@ class JobRepository:
         structured_data: Optional[dict] = None,
         embedding: Optional[List[float]] = None,
         markdown_content: Optional[str] = None,
-        department: Optional[str] = None,
-        org_id: Optional[uuid.UUID] = None
+        org_id: Optional[uuid.UUID] = None,
+        location: Optional[str] = None,
+        work_arrangement: Optional[str] = None,
+        hybrid_days_per_week: Optional[int] = None,
+        pay_range_min: Optional[int] = None,
+        pay_range_max: Optional[int] = None,
+        pay_type: Optional[str] = None,
+        employment_type: Optional[str] = None,
+        offers_relocation: Optional[bool] = None,
+        raw_text: Optional[str] = None
     ) -> bool:
         """Update an existing job's details"""
         result = await self.session.execute(
@@ -88,10 +108,26 @@ class JobRepository:
             job.embedding = embedding
         if markdown_content is not None:
             job.markdown_content = markdown_content
-        if department is not None:
-            job.department = department
         if org_id is not None:
             job.org_id = org_id
+        if location is not None:
+            job.location = location
+        if work_arrangement is not None:
+            job.work_arrangement = work_arrangement
+        if hybrid_days_per_week is not None:
+            job.hybrid_days_per_week = hybrid_days_per_week
+        if pay_range_min is not None:
+            job.pay_range_min = pay_range_min
+        if pay_range_max is not None:
+            job.pay_range_max = pay_range_max
+        if pay_type is not None:
+            job.pay_type = pay_type
+        if employment_type is not None:
+            job.employment_type = employment_type
+        if offers_relocation is not None:
+            job.offers_relocation = offers_relocation
+        if raw_text is not None:
+            job.raw_text = raw_text
             
         await self.session.flush()
         return True
@@ -112,9 +148,16 @@ class JobRepository:
             "title": job.title,
             "raw_text": job.raw_text,
             "markdown_content": job.markdown_content,
-            "department": job.department,
             "structured_data": job.structured_data,
             "embedding": job.embedding,
+            "location": job.location,
+            "work_arrangement": job.work_arrangement,
+            "hybrid_days_per_week": job.hybrid_days_per_week,
+            "pay_range_min": job.pay_range_min,
+            "pay_range_max": job.pay_range_max,
+            "pay_type": job.pay_type,
+            "employment_type": job.employment_type,
+            "offers_relocation": job.offers_relocation,
             "created_at": job.created_at
         }
 
@@ -165,8 +208,15 @@ class JobRepository:
                 "title": job.title,
                 "raw_text": job.raw_text,
                 "markdown_content": job.markdown_content,
-                "department": job.department,
                 "structured_data": job.structured_data,
+                "location": job.location,
+                "work_arrangement": job.work_arrangement,
+                "hybrid_days_per_week": job.hybrid_days_per_week,
+                "pay_range_min": job.pay_range_min,
+                "pay_range_max": job.pay_range_max,
+                "pay_type": job.pay_type,
+                "employment_type": job.employment_type,
+                "offers_relocation": job.offers_relocation,
                 "created_at": job.created_at.isoformat() if job.created_at else None,
                 "resumes": [
                     {

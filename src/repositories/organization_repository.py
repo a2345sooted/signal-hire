@@ -63,3 +63,22 @@ class OrganizationRepository:
         stmt = select(Organization).where(Organization.id == org_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_organization_by_slug(self, slug: str) -> Optional[Organization]:
+        """
+        Returns an organization by slug.
+        """
+        stmt = select(Organization).where(Organization.slug == slug)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_user_role_in_org(self, user_id: uuid.UUID, org_id: uuid.UUID) -> Optional[OrgRole]:
+        """
+        Returns the user's role in the specified organization.
+        """
+        stmt = select(OrganizationUser.role).where(
+            OrganizationUser.user_id == user_id,
+            OrganizationUser.org_id == org_id
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()

@@ -14,4 +14,3 @@ class JDState(BaseAgentState):
     # DB Results
     job_id: Optional[uuid.UUID]
     org_id: Optional[uuid.UUID]
-    department: Optional[str]

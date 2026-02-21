@@ -39,7 +39,7 @@ async def structured_data_node(state: JDState, config: RunnableConfig = None):
 Respond ONLY with the JSON object.
 
 CRITICAL INSTRUCTIONS:
-- Extract company name, job title, and department if present.
+- Extract company name and job title if present.
 - Populate 'requirements' with 'responsibilities', 'must_have', 'nice_to_have' (concise strings).
 - 'skills' should be a flat list of technical/soft skills.
 - ANALYSIS:
@@ -64,7 +64,7 @@ Job Description:
         logger.debug(f"[JD_PROCESSOR] [{clean_id_str}] Structured Data Node result: {result.model_dump_json(indent=2)}")
         
         # Ensure 'job_title' is available for display purposes if 'title' was used in extraction
-        structured_data = result.model_dump(exclude={"department"})
+        structured_data = result.model_dump()
         if "title" in structured_data:
             structured_data["job_title"] = structured_data["title"]
 

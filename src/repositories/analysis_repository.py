@@ -15,13 +15,15 @@ class AnalysisRepository:
         self,
         candidate_id: uuid.UUID,
         job_id: uuid.UUID,
-        content: dict
+        content: dict,
+        resume_id: Optional[uuid.UUID] = None
     ) -> uuid.UUID:
         """Insert a new analysis"""
         analysis = Analysis(
             candidate_id=candidate_id,
             job_id=job_id,
-            content=content
+            content=content,
+            resume_id=resume_id
         )
         self.session.add(analysis)
         await self.session.flush()

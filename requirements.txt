@@ -9,7 +9,8 @@ langgraph-checkpoint-postgres
 python-multipart
 pypdf
 python-docx
-pydantic
+pydantic[email]
+email-validator
 openai
 minio
 python-dotenv

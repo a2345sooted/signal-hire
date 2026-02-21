@@ -16,7 +16,6 @@ async def run_jd_agent(
     raw_text: str, 
     thread_id_id: Optional[str] = None,
     job_id: Optional[uuid.UUID] = None,
-    department: Optional[str] = None,
     org_id: Optional[uuid.UUID] = None
 ) -> Union[Dict[str, Any], Any]:
     """
@@ -43,8 +42,7 @@ async def run_jd_agent(
             "markdown": "",
             "structured_data": None,
             "job_id": job_id,
-            "org_id": org_id,
-            "department": department
+            "org_id": org_id
         }
         
         config = {"configurable": {"thread_id": thread_id}}

@@ -15,6 +15,7 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
     """
     candidate_id = state.get("candidate_id")
     job_id = state.get("job_id")
+    resume_id = state.get("resume_id")
     
     if not candidate_id or not job_id:
         logger.error("[ANALYZER_AGENT] Missing candidate_id or job_id for saving analysis")
@@ -51,7 +52,8 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
             analysis_id = await repo.create_analysis(
                 candidate_id=uuid.UUID(candidate_id),
                 job_id=uuid.UUID(job_id),
-                content=content
+                content=content,
+                resume_id=uuid.UUID(resume_id) if resume_id else None
             )
             await db.commit()
             logger.info(f"[ANALYZER_AGENT] Analysis saved with ID: {analysis_id}")

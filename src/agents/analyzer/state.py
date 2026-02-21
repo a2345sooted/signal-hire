@@ -16,6 +16,7 @@ class AnalyzerState(BaseAgentState):
     thread_id: str
     candidate_id: str
     job_id: str
+    resume_id: Optional[str]
     org_id: Optional[uuid.UUID]
     analysis_id: Optional[uuid.UUID]
     

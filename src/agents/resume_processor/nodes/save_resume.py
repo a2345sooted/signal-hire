@@ -99,7 +99,12 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             
             # 1. Handle Candidate
             candidate_name = structured_data.get("contact", {}).get("name", "Unknown Candidate")
-            candidate_id = await candidate_repo.get_or_create_candidate_by_name(candidate_name, org_id=state.get("org_id"))
+            candidate_email = structured_data.get("contact", {}).get("email", "unknown@unknown.com")
+            candidate_id = await candidate_repo.get_or_create_candidate_by_name(
+                candidate_name, 
+                email=candidate_email,
+                org_id=state.get("org_id")
+            )
             
             # 2. Handle Resume
             existing_resume_id = state.get("resume_id")

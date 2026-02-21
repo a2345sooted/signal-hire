@@ -13,7 +13,6 @@ class JobAnalysisSchema(BaseModel):
 class JobSchema(BaseModel):
     company: Optional[str] = Field(..., description="The name of the company")
     title: Optional[str] = Field(..., description="The job title")
-    department: Optional[str] = Field(None, description="The department within the company")
     raw_text: str = Field(..., description="The full job description text")
     requirements: Optional[Dict[str, str]] = Field(..., description="Parsed requirements (structured like responsibilities, must_have, etc.)")
     skills: List[str] = Field(..., description="Extracted required skills")
