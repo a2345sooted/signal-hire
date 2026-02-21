@@ -146,6 +146,20 @@ class Job(Base):
 
     resumes = relationship("Resume", back_populates="job", cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="job", cascade="all, delete-orphan")
+    notes = relationship("JobNote", back_populates="job", cascade="all, delete-orphan")
+
+class JobNote(Base):
+    __tablename__ = "job_notes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job = relationship("Job", back_populates="notes")
+    user = relationship("User")
 
 class Analysis(Base):
     __tablename__ = "analyses"

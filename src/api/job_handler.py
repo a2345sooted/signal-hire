@@ -20,7 +20,20 @@ from src.repositories.organization_repository import OrganizationRepository
 from src.services.storage import storage_service
 from src.services.parser import extract_text_from_bytes
 
+from datetime import datetime
+
+
 logger = logging.getLogger(__name__)
+
+class JobNoteCreate(BaseModel):
+    content: str
+
+class JobNoteResponse(BaseModel):
+    id: uuid.UUID
+    content: str
+    created_at: datetime
+    user_id: uuid.UUID
+    user_email: str
 
 class JobCreate(BaseModel):
     title: str
@@ -71,6 +84,7 @@ class JobResponse(BaseModel):
     num_candidates: int = 0 # Stubbed
     tags: List[str] = [] # Stubbed
     top_candidates: List[dict] = []
+    notes: List[JobNoteResponse] = []
 
     class Config:
         from_attributes = True
@@ -634,8 +648,9 @@ async def get_job(
         "pay_type": job.get("pay_type"),
         "employment_type": job.get("employment_type"),
         "offers_relocation": job.get("offers_relocation") or False,
-        "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+        "created_at": job["created_at"].isoformat() if isinstance(job.get("created_at"), datetime) else job.get("created_at"),
         "resumes": resumes,
+        "notes": job.get("notes") or [],
         "status": "open",
         "num_candidates": len(resumes),
         "tags": ["Engineering", "Urgent"],
@@ -704,3 +719,47 @@ async def patch_job_endpoint(
         return {"success": True, "message": f"Job {job_id} updated successfully"}
     else:
         return {"success": False, "message": "Failed to update job"}
+
+async def add_job_note_endpoint(
+    request: Request,
+    job_id: uuid.UUID,
+    body: JobNoteCreate,
+    x_org_slug: Annotated[str, Header()],
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Add a note to a job.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    org_repo = OrganizationRepository(db)
+    org = await org_repo.get_organization_by_slug(x_org_slug)
+    if not org:
+        raise HTTPException(status_code=404, detail=f"Organization '{x_org_slug}' not found")
+
+    role = await org_repo.get_user_role_in_org(user_id, org.id)
+    if not role:
+        raise HTTPException(status_code=403, detail="User does not belong to this organization")
+
+    repo = JobRepository(db)
+    job = await repo.get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if str(job.get("org_id")) != str(org.id):
+        raise HTTPException(status_code=403, detail="Job does not belong to this organization")
+
+    note_id = await repo.add_job_note(
+        job_id=job_id,
+        user_id=user_id,
+        content=body.content
+    )
+    
+    await db.commit()
+    
+    return {
+        "success": True,
+        "note_id": str(note_id)
+    }

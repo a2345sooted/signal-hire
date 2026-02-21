@@ -4,12 +4,42 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..models.db_models import Job, Resume
+from ..models.db_models import Job, Resume, JobNote
 
 
 class JobRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
+    
+    async def add_job_note(self, job_id: uuid.UUID, user_id: uuid.UUID, content: str) -> uuid.UUID:
+        """Add a note to a job"""
+        note = JobNote(job_id=job_id, user_id=user_id, content=content)
+        self.session.add(note)
+        await self.session.flush()
+        return note.id
+
+    async def get_job_notes(self, job_id: uuid.UUID) -> list[Dict[str, Any]]:
+        """Retrieve all notes for a job"""
+        from ..models.db_models import User
+        
+        result = await self.session.execute(
+            select(JobNote, User.email)
+            .join(User, JobNote.user_id == User.id)
+            .where(JobNote.job_id == job_id)
+            .order_by(JobNote.created_at.desc())
+        )
+        notes = result.all()
+        
+        return [
+            {
+                "id": str(note.JobNote.id),
+                "content": note.JobNote.content,
+                "created_at": note.JobNote.created_at.isoformat() if note.JobNote.created_at else None,
+                "user_id": str(note.JobNote.user_id),
+                "user_email": note.email
+            }
+            for note in notes
+        ]
     
     async def create_job(
         self,
@@ -142,6 +172,9 @@ class JobRepository:
         if not job:
             return None
             
+        # Get notes
+        notes = await self.get_job_notes(job_id)
+
         return {
             "id": str(job.id),
             "org_id": str(job.org_id) if job.org_id else None,
@@ -158,7 +191,8 @@ class JobRepository:
             "pay_type": job.pay_type,
             "employment_type": job.employment_type,
             "offers_relocation": job.offers_relocation,
-            "created_at": job.created_at
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "notes": notes
         }
 
 

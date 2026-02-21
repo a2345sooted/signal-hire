@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter
-from src.api.job_handler import create_job, save_jd, get_jobs, upload_resume, get_resume, get_resume_analysis, get_resume_pdf, get_job, get_analysis, stop_resume_processing, delete_job_endpoint, patch_job_endpoint
+from src.api.job_handler import create_job, save_jd, get_jobs, upload_resume, get_resume, get_resume_analysis, get_resume_pdf, get_job, get_analysis, stop_resume_processing, delete_job_endpoint, patch_job_endpoint, add_job_note_endpoint
 from src.api.organization_handler import create_organization, get_my_organizations
 from src.api.user_handler import get_me, accept_terms
 from src.api.candidate_handler import create_candidate, get_candidate, get_candidates, add_candidate_note, get_candidate_notes
@@ -20,6 +20,7 @@ router.get("/v1/jobs", tags=["jobs"])(get_jobs)
 router.get("/v1/jobs/{job_id}", tags=["jobs"])(get_job)
 router.patch("/v1/jobs/{job_id}", tags=["jobs"])(patch_job_endpoint)
 router.delete("/v1/jobs/{job_id}", tags=["jobs"])(delete_job_endpoint)
+router.post("/v1/jobs/{job_id}/notes", tags=["jobs"])(add_job_note_endpoint)
 
 router.post("/v1/organizations", tags=["organizations"])(create_organization)
 router.get("/v1/organizations/mine", tags=["organizations"])(get_my_organizations)
