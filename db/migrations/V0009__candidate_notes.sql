@@ -1,3 +1,4 @@
+-- Candidate notes table
 CREATE TABLE candidate_notes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,

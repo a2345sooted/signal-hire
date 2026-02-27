@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Skip health checks
-        if request.url.path in ["/api/health", "/health"]:
+        if request.url.path in ["/health", "/api/health"]:
+            return await call_next(request)
+
+        # Skip paths that don't start with /api (FastAPI handles 404 for these, but middleware runs first)
+        if not request.url.path.startswith("/api"):
             return await call_next(request)
 
         # Get Authorization header

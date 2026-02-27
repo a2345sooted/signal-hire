@@ -48,6 +48,11 @@ async def lifespan(fast_app: FastAPI):
     await close_checkpointer()
 
 app = FastAPI(lifespan=lifespan)
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 app.add_middleware(AuthMiddleware)
 
 app.include_router(router, prefix="/api")

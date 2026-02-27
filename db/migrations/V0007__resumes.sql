@@ -8,6 +8,7 @@ CREATE TABLE resumes (
     structured_data JSONB NOT NULL,
     embedding vector(1536),
     job_id UUID REFERENCES jobs(id) ON DELETE CASCADE,
+    candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -23,5 +24,8 @@ CREATE INDEX resumes_structured_data_idx ON resumes USING gin (structured_data);
 -- Index for resumes hash lookups
 CREATE INDEX ix_resumes_raw_text_hash ON resumes (raw_text_hash);
 
--- Index for resumes foreign key
+-- Index for resumes job_id
 CREATE INDEX ix_resumes_job_id ON resumes (job_id);
+
+-- Index for resumes candidate_id
+CREATE INDEX ix_resumes_candidate_id ON resumes (candidate_id);

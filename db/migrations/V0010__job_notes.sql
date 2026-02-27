@@ -1,4 +1,4 @@
--- V0016__add_job_notes.sql
+-- Job notes table
 CREATE TABLE job_notes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
