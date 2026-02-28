@@ -128,4 +128,20 @@ class StorageService:
             logger.error(f"Failed to retrieve file from S3: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file from S3: {str(e)}")
 
+    async def get_presigned_url(self, storage_key: str, expires_in: int = 3600) -> str:
+        """
+        Generates a presigned URL for an S3 object.
+        """
+        try:
+            async with self.session.client('s3', endpoint_url=self.endpoint_url) as s3:
+                url = await s3.generate_presigned_url(
+                    'get_object',
+                    Params={'Bucket': self.bucket_name, 'Key': storage_key},
+                    ExpiresIn=expires_in
+                )
+            return url
+        except Exception as e:
+            logger.error(f"Failed to generate presigned URL: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to generate presigned URL: {str(e)}")
+
 storage_service = StorageService()

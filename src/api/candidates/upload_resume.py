@@ -66,9 +66,22 @@ async def upload_resume(
 
     logger.info(f"Uploading resume for candidate {candidate_id}: {file.filename}")
 
-    # Upload to S3 with path: {candidate_id}/resumes/{filename}
+    # Record in resumes table
+    resume_repo = ResumeRepository(db)
+
+    # Check for duplicates by filename for this candidate
+    existing_resumes = await resume_repo.get_resumes_by_candidate_id(candidate_id)
+    for res in existing_resumes:
+        if res.original_filename == file.filename:
+            logger.warning(f"Duplicate resume upload attempt for candidate {candidate_id}: {file.filename}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"A resume with the filename '{file.filename}' already exists for this candidate."
+            )
+
+    # Upload to S3 with path: candidates/{candidate_id}/resumes/{filename}
     file_data = await file.read()
-    dir_path = f"{candidate_id}/resumes"
+    dir_path = f"candidates/{candidate_id}/resumes"
     storage_key = await storage_service.upload_file_data(
         file_data,
         file.filename,
@@ -76,14 +89,14 @@ async def upload_resume(
         dir_id=dir_path
     )
 
-    # Record in resumes table
-    resume_repo = ResumeRepository(db)
+    # Create resume record in database
     resume_id = await resume_repo.create_resume(
         original_filename=file.filename,
         raw_text="", # Will be filled by agent if we trigger it, but for now we just upload
         structured_data={"status": "uploaded"},
         storage_key=storage_key,
-        candidate_id=candidate_id
+        candidate_id=candidate_id,
+        is_current=True
     )
 
     await db.commit()

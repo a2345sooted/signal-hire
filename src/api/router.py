@@ -11,7 +11,8 @@ from src.api.users import get_me
 from src.api.candidates import (
     create_candidate, get_candidate, get_candidates, patch_candidate,
     add_candidate_note, get_candidate_notes, patch_candidate_note,
-    delete_candidate_note, delete_candidate, upload_resume as upload_candidate_resume
+    delete_candidate_note, delete_candidate, upload_resume as upload_candidate_resume,
+    get_resumes as get_candidate_resumes
 )
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ router.get("/v1/candidates/{candidate_id}/notes", tags=["candidates"])(get_candi
 router.patch("/v1/candidates/{candidate_id}/notes/{note_id}", tags=["candidates"])(patch_candidate_note)
 router.delete("/v1/candidates/{candidate_id}/notes/{note_id}", tags=["candidates"])(delete_candidate_note)
 router.post("/v1/candidates/{candidate_id}/resumes/upload", tags=["candidates"])(upload_candidate_resume)
+router.get("/v1/candidates/{candidate_id}/resumes", tags=["candidates"])(get_candidate_resumes)
 
 router.get("/v1/users/me", tags=["users"])(get_me)
 

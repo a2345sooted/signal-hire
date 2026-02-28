@@ -17,6 +17,7 @@ from .patch_candidate_note import patch_candidate_note
 from .delete_candidate_note import delete_candidate_note
 from .delete_candidate import delete_candidate
 from .upload_resume import upload_resume
+from .get_resumes import get_resumes
 
 __all__ = [
     "CandidateCreate",
@@ -36,4 +37,5 @@ __all__ = [
     "delete_candidate_note",
     "delete_candidate",
     "upload_resume",
+    "get_resumes",
 ]

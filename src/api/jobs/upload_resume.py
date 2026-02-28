@@ -59,7 +59,8 @@ async def upload_resume(
         structured_data={"filename": unique_filename, "status": "uploading"},
         embedding=None,
         storage_key=None, # Will be set after upload
-        job_id=job_id
+        job_id=job_id,
+        is_current=True
     )
     
     # 2. Upload to storage using the resume_id as the directory name
