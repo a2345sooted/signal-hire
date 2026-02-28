@@ -4,7 +4,7 @@ from src.api.jobs import (
     create_job, save_jd, get_jobs, upload_resume, get_resume,
     get_resume_analysis, get_resume_pdf, get_job, get_analysis,
     stop_resume_processing, delete_job, patch_job, add_job_note,
-    patch_job_note, delete_job_note
+    patch_job_note, delete_job_note, attach_candidate, detach_candidate
 )
 from src.api.organizations import create_organization, get_my_organizations
 from src.api.users import get_me
@@ -27,6 +27,8 @@ router.delete("/v1/jobs/{job_id}", tags=["jobs"])(delete_job)
 router.post("/v1/jobs/{job_id}/notes", tags=["jobs"])(add_job_note)
 router.patch("/v1/jobs/{job_id}/notes/{note_id}", tags=["jobs"])(patch_job_note)
 router.delete("/v1/jobs/{job_id}/notes/{note_id}", tags=["jobs"])(delete_job_note)
+router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/attach", tags=["jobs"])(attach_candidate)
+router.delete("/v1/jobs/{job_id}/candidates/{candidate_id}/detach", tags=["jobs"])(detach_candidate)
 
 router.post("/v1/organizations", tags=["organizations"])(create_organization)
 router.get("/v1/organizations/mine", tags=["organizations"])(get_my_organizations)
@@ -48,4 +50,4 @@ router.post("/v1/resumes/stop/{job_id}", tags=["resumes"])(stop_resume_processin
 router.get("/v1/resumes/{resume_id}", tags=["resumes"])(get_resume)
 router.get("/v1/resumes/{resume_id}/pdf", tags=["resumes"])(get_resume_pdf)
 router.get("/v1/resume/{resume_id}/analysis", tags=["resumes"])(get_resume_analysis)
-router.get("/v1/analysis/{analysis_id}", tags=["analyses"])(get_analysis)
+router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/analysis", tags=["analyses"])(get_analysis)

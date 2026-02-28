@@ -47,6 +47,27 @@ class AnalysisRepository:
             "created_at": analysis.created_at.isoformat() if analysis.created_at else None
         }
 
+    async def get_latest_analysis_for_candidate(self, candidate_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+        """Retrieve the latest analysis for a specific candidate across all jobs"""
+        result = await self.session.execute(
+            select(Analysis)
+            .where(Analysis.candidate_id == candidate_id)
+            .order_by(Analysis.created_at.desc())
+            .limit(1)
+        )
+        analysis = result.scalar_one_or_none()
+        
+        if not analysis:
+            return None
+            
+        return {
+            "id": str(analysis.id),
+            "candidate_id": str(analysis.candidate_id),
+            "job_id": str(analysis.job_id),
+            "content": analysis.content,
+            "created_at": analysis.created_at.isoformat() if analysis.created_at else None
+        }
+
     async def get_analysis_for_candidate_job(self, candidate_id: uuid.UUID, job_id: uuid.UUID) -> Optional[Dict[str, Any]]:
         """Retrieve analysis for a specific candidate and job"""
         result = await self.session.execute(

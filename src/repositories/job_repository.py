@@ -45,6 +45,44 @@ class JobRepository:
         await self.session.flush()
         return True
 
+    async def attach_candidate(self, job_id: uuid.UUID, candidate_id: uuid.UUID) -> uuid.UUID:
+        """Attach a candidate to a job"""
+        from ..models.db_models import JobAttachment
+        
+        # Check if already attached
+        stmt = select(JobAttachment).where(
+            JobAttachment.job_id == job_id,
+            JobAttachment.candidate_id == candidate_id
+        )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            return existing.id
+            
+        attachment = JobAttachment(job_id=job_id, candidate_id=candidate_id)
+        self.session.add(attachment)
+        await self.session.flush()
+        return attachment.id
+
+    async def detach_candidate(self, job_id: uuid.UUID, candidate_id: uuid.UUID) -> bool:
+        """Detach a candidate from a job"""
+        from ..models.db_models import JobAttachment
+        
+        stmt = select(JobAttachment).where(
+            JobAttachment.job_id == job_id,
+            JobAttachment.candidate_id == candidate_id
+        )
+        result = await self.session.execute(stmt)
+        attachment = result.scalar_one_or_none()
+        
+        if not attachment:
+            return False
+            
+        await self.session.delete(attachment)
+        await self.session.flush()
+        return True
+
     async def get_job_notes(self, job_id: uuid.UUID) -> list[Dict[str, Any]]:
         """Retrieve all notes for a job"""
         from ..models.db_models import User
@@ -207,6 +245,19 @@ class JobRepository:
         # Get notes
         notes = await self.get_job_notes(job_id)
 
+        # Get attached candidates
+        from ..models.db_models import JobAttachment, JobRecommendation, Candidate
+        attached_result = await self.session.execute(
+            select(Candidate).join(JobAttachment).where(JobAttachment.job_id == job_id)
+        )
+        attached_candidates = attached_result.scalars().all()
+
+        # Get recommended candidates
+        recommended_result = await self.session.execute(
+            select(Candidate).join(JobRecommendation).where(JobRecommendation.job_id == job_id)
+        )
+        recommended_candidates = recommended_result.scalars().all()
+
         return {
             "id": str(job.id),
             "org_id": str(job.org_id) if job.org_id else None,
@@ -225,7 +276,25 @@ class JobRepository:
             "employment_type": job.employment_type,
             "offers_relocation": job.offers_relocation,
             "created_at": job.created_at.isoformat() if job.created_at else None,
-            "notes": notes
+            "notes": notes,
+            "attached_candidates": [
+                {
+                    "id": str(c.id),
+                    "name": c.name,
+                    "email": c.email,
+                    "phone": c.phone,
+                    "location": c.location
+                }
+                for c in attached_candidates
+            ],
+            "recommended_candidates": [
+                {
+                    "id": str(c.id),
+                    "name": c.name,
+                    "email": c.email
+                }
+                for c in recommended_candidates
+            ]
         }
 
 

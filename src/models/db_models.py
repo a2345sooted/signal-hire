@@ -78,6 +78,9 @@ class Candidate(Base):
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="candidate", cascade="all, delete-orphan")
     notes = relationship("CandidateNote", back_populates="candidate", cascade="all, delete-orphan")
+    attached_jobs = relationship("JobAttachment", back_populates="candidate", cascade="all, delete-orphan")
+    recommended_jobs = relationship("JobRecommendation", back_populates="candidate", cascade="all, delete-orphan")
+    candidate_recommendations = relationship("CandidateRecommendation", back_populates="candidate", cascade="all, delete-orphan")
 
 
 class CandidateNote(Base):
@@ -146,6 +149,44 @@ class Job(Base):
     resumes = relationship("Resume", back_populates="job", cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="job", cascade="all, delete-orphan")
     notes = relationship("JobNote", back_populates="job", cascade="all, delete-orphan")
+    attached_candidates = relationship("JobAttachment", back_populates="job", cascade="all, delete-orphan")
+    recommended_candidates = relationship("JobRecommendation", back_populates="job", cascade="all, delete-orphan")
+    candidate_recommendations = relationship("CandidateRecommendation", back_populates="job", cascade="all, delete-orphan")
+
+class JobAttachment(Base):
+    __tablename__ = "job_attachments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    job = relationship("Job", back_populates="attached_candidates")
+    candidate = relationship("Candidate", back_populates="attached_jobs")
+
+class JobRecommendation(Base):
+    __tablename__ = "job_recommendations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    score = Column(Integer, nullable=True)  # Match score
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    job = relationship("Job", back_populates="recommended_candidates")
+    candidate = relationship("Candidate", back_populates="recommended_jobs")
+
+class CandidateRecommendation(Base):
+    __tablename__ = "candidate_recommendations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    score = Column(Integer, nullable=True)  # Match score
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    candidate = relationship("Candidate", back_populates="candidate_recommendations")
+    job = relationship("Job", back_populates="candidate_recommendations")
 
 class JobNote(Base):
     __tablename__ = "job_notes"

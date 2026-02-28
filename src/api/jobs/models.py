@@ -42,6 +42,13 @@ class JobUpdate(BaseModel):
     employment_type: Optional[str] = None
     offers_relocation: Optional[bool] = None
 
+class AttachedCandidate(BaseModel):
+    id: uuid.UUID
+    name: str
+    email: str
+    phone: Optional[str] = None
+    location: Optional[str] = None
+
 class JobResponse(BaseModel):
     id: str
     title: str
@@ -62,7 +69,7 @@ class JobResponse(BaseModel):
     # New fields for list card
     owner_email: str = "user@example.com"  # Stubbed
     num_candidates: int = 0 # Stubbed
-    top_candidates: List[dict] = []
+    attached_candidates: List[AttachedCandidate] = []
     recommended_candidates: List[dict] = []
     notes: List[JobNoteResponse] = []
 

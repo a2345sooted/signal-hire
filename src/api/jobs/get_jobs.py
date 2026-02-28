@@ -85,7 +85,7 @@ async def get_jobs(
             "resume_count": len(resumes),
             "num_candidates": len(resumes), # Stubbed but using actual count
             "tags": ["Engineering", "Urgent"], # Stubbed
-            "top_candidates": top_candidates,
+            "attached_candidates": top_candidates,
             "status": "open", # "open" or "closed"
             "owner_email": "user@example.com" # Stubbed
         })

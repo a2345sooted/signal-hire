@@ -61,9 +61,9 @@ async def get_job(
         "offers_relocation": job.get("offers_relocation") or False,
         "created_at": job["created_at"].isoformat() if isinstance(job.get("created_at"), datetime) else job.get("created_at"),
         "notes": job.get("notes") or [],
-        "num_candidates": 0,  # Stubbed or could be fetched separately if needed
-        "top_candidates": [],
-        "recommended_candidates": [],
+        "num_candidates": 0,
+        "attached_candidates": job.get("attached_candidates") or [],
+        "recommended_candidates": job.get("recommended_candidates") or [],
     }
     
     # Construct pay string for consistency

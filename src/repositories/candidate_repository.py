@@ -43,7 +43,7 @@ class CandidateRepository:
 
     async def get_candidate_by_id(self, candidate_id: uuid.UUID) -> Optional[Dict[str, Any]]:
         """Retrieve a candidate by ID along with their attached jobs and notes"""
-        from ..models.db_models import Job, Analysis
+        from ..models.db_models import Job, JobAttachment, CandidateRecommendation
 
         result = await self.session.execute(
             select(Candidate).where(Candidate.id == candidate_id)
@@ -53,10 +53,15 @@ class CandidateRepository:
         if not candidate:
             return None
         
-        # Get jobs via analyses
-        jobs_query = select(Job).join(Analysis).where(Analysis.candidate_id == candidate_id)
-        jobs_result = await self.session.execute(jobs_query)
-        jobs = jobs_result.scalars().all()
+        # Get attached jobs
+        attached_query = select(Job).join(JobAttachment).where(JobAttachment.candidate_id == candidate_id)
+        attached_result = await self.session.execute(attached_query)
+        attached_jobs = attached_result.scalars().all()
+
+        # Get recommended jobs
+        recommended_query = select(Job).join(CandidateRecommendation).where(CandidateRecommendation.candidate_id == candidate_id)
+        recommended_result = await self.session.execute(recommended_query)
+        recommended_jobs = recommended_result.scalars().all()
 
         # Get notes
         notes = await self.get_notes(candidate_id)
@@ -77,11 +82,18 @@ class CandidateRepository:
                 {
                     "id": str(job.id),
                     "title": job.title,
-                    "status": "attached"  # Stubbed status
+                    "status": "attached"
                 }
-                for job in jobs
+                for job in attached_jobs
             ],
-            "recommended_jobs": [],
+            "recommended_jobs": [
+                {
+                    "id": str(job.id),
+                    "title": job.title,
+                    "status": "recommended"
+                }
+                for job in recommended_jobs
+            ],
             "notes": notes
         }
 

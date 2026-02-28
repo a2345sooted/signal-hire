@@ -14,6 +14,8 @@ from .patch_job import patch_job
 from .add_job_note import add_job_note
 from .patch_job_note import patch_job_note
 from .delete_job_note import delete_job_note
+from .attach_candidate import attach_candidate
+from .detach_candidate import detach_candidate
 
 __all__ = [
     "JobCreate",
@@ -37,4 +39,6 @@ __all__ = [
     "add_job_note",
     "patch_job_note",
     "delete_job_note",
+    "attach_candidate",
+    "detach_candidate",
 ]
