@@ -1,0 +1,64 @@
+import logging
+from typing import Annotated
+from fastapi import Depends, Request, HTTPException, Header
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database import get_db
+from src.repositories.job_repository import JobRepository
+from src.repositories.organization_repository import OrganizationRepository
+from .models import JobCreate
+
+logger = logging.getLogger(__name__)
+
+async def create_job(
+    request: Request,
+    body: JobCreate,
+    x_org_slug: Annotated[str, Header()],
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a job directly in the database.
+    Does NOT trigger the AI agent for now.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    org_repo = OrganizationRepository(db)
+    org = await org_repo.get_organization_by_slug(x_org_slug)
+    if not org:
+        raise HTTPException(status_code=404, detail=f"Organization with slug '{x_org_slug}' not found")
+
+    role = await org_repo.get_user_role_in_org(user_id, org.id)
+    if not role:
+        raise HTTPException(status_code=403, detail="User does not belong to this organization")
+
+    # Only OWNER, ADMIN, or RECRUITER can create a job (all roles currently have this right)
+    
+    logger.info(f"Creating job: {body.title} for client: {body.client_name} for org: {org.name} ({org.id})")
+    
+    repo = JobRepository(db)
+    
+    # We use empty dict for structured_data as it's normally filled by agent
+    # but the model now allows it to be null.
+    job_id = await repo.create_job(
+        title=body.title,
+        client_name=body.client_name,
+        raw_text=body.raw_text,
+        org_id=org.id,
+        location=body.location,
+        work_arrangement=body.work_arrangement,
+        hybrid_days_per_week=body.hybrid_days_per_week,
+        pay_range_min=body.pay_range_min,
+        pay_range_max=body.pay_range_max,
+        pay_type=body.pay_type,
+        employment_type=body.employment_type,
+        offers_relocation=body.offers_relocation,
+        structured_data={} 
+    )
+    
+    await db.commit()
+    
+    return {
+        "job_id": str(job_id)
+    }

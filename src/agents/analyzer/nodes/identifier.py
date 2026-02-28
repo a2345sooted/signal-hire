@@ -53,25 +53,6 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     """
 
     try:
-        # Broadcast status
-        from ....api.ws.manager import manager
-        import json
-        import asyncio
-        job_id = state.get("job_id")
-        resume_id = state.get("resume_id")
-        if job_id:
-            # Add a small delay to ensure frontend is ready for updates
-            await asyncio.sleep(0.5)
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Analyzing",
-                    "message": "Identifying matches and gaps...",
-                    "resume_id": str(resume_id),
-                    "completed": False
-                }),
-                str(job_id)
-            )
-
         result = await structured_identifier.ainvoke(prompt)
         
         logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Identifier Node completed.")

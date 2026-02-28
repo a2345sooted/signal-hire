@@ -7,7 +7,7 @@ This is an exploration project focused on **LangChain**, **LangGraph**, and **ag
 - **Agentic Workflows:** Using LangGraph to orchestrate multiple specialized agents.
 - **Persistent Memory:** Leveraging PostgreSQL checkpointers to maintain state across agentic interactions.
 - **Contextual Reasoning:** Exploring how agents can "remember" candidate details and achievements to provide better suggestions for specific Job Descriptions (JDs).
-- **Human-in-the-loop:** (Experimental) Patterns for real-time interaction via WebSockets.
+- **Human-in-the-loop:** Experimental patterns for real-time interaction.
 
 ## 🛠 Tech Stack
 

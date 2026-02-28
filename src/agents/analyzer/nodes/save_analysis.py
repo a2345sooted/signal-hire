@@ -33,20 +33,6 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
     }
 
     try:
-        # Broadcast status
-        from ....api.ws.manager import manager
-        import json
-        if job_id:
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Saving",
-                    "message": "Storing analysis results to database...",
-                    "candidate_id": str(candidate_id),
-                    "completed": False
-                }),
-                str(job_id)
-            )
-
         async with AsyncSessionLocal() as db:
             repo = AnalysisRepository(db)
             analysis_id = await repo.create_analysis(

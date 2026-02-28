@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional, Union
 
 from ...agents.registry import get_jd_agent
 from ...agents.utils import generate_thread_id
-from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, broadcast_agent_error, cancel_agent_task
+from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, cancel_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -50,21 +50,13 @@ async def run_jd_agent(
         def completion_check(state: JDState) -> bool:
             return bool(state.get("markdown") and state.get("structured_data"))
 
-        async def error_broadcaster(e: Exception):
-            await broadcast_agent_error(
-                job_id=job_id,
-                thread_id=thread_id,
-                error=e,
-                log_tag=log_tag
-            )
-
         return await run_agent_with_retries(
             agent=get_jd_agent(),
             initial_state=initial_state,
             config=config,
             log_tag=log_tag,
             completion_check=completion_check,
-            error_broadcaster=error_broadcaster
+            error_broadcaster=None
         )
 
     except asyncio.CancelledError:

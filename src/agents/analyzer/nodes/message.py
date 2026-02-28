@@ -89,22 +89,6 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
     minor_gaps = state.get("minor_gaps", [])
 
     try:
-        # Broadcast status
-        from ....api.ws.manager import manager
-        import json
-        job_id = state.get("job_id")
-        resume_id = state.get("resume_id")
-        if job_id:
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Summarizing",
-                    "message": "Generating analysis summary...",
-                    "resume_id": str(resume_id),
-                    "completed": False
-                }),
-                str(job_id)
-            )
-
         summary_msg = await generate_analysis_summary(
             score,
             major_hits,

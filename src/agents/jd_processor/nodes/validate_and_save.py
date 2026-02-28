@@ -66,13 +66,6 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
     job_title = structured_data_dict.get("job_title") or structured_data_dict.get("title")
 
     try:
-        from ....api.ws.manager import manager
-        import json
-        await manager.broadcast_to_job(
-            json.dumps({"status": "Processing job description", "message": "Processing job description"}),
-            str(job_id)
-        )
-        
         # Generate real embedding for the job description
         logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating embedding for JD...")
         prepared_text = prepare_job_text_for_embedding(structured_data_dict)
@@ -113,17 +106,6 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
             await db.commit()
             
         logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Job description finalized with ID: {job_id}")
-        
-        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Broadcasting success message to job_id: {clean_id_str}")
-        await manager.broadcast_to_job(
-            json.dumps({
-                "status": "Job description processed successfully!", 
-                "message": "Job description processed successfully!",
-                "completed": True,
-                "job_id": str(job_id)
-            }),
-            str(job_id)
-        )
         
     except Exception as e:
         logger.error(f"[JD_PROCESSOR] [{clean_id_str}] Validate and Save Node failed during finalization: {str(e)}", exc_info=True)

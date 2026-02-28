@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from ...agents.registry import get_analyzer_agent
 from ...agents.utils import generate_thread_id
 from ...constants import TASK_ANALYSIS, CONFIG_THREAD_ID_KEY
-from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, broadcast_agent_error, cancel_agent_task
+from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, cancel_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -70,40 +70,15 @@ async def run_analyzer_agent(
         def completion_check(state: AnalyzerState) -> bool:
             return bool(state.get("analysis_id"))
 
-        async def error_broadcaster(e: Exception):
-            await broadcast_agent_error(
-                job_id=job_id,
-                thread_id=thread_id,
-                error=e,
-                log_tag=log_tag,
-                extra_data={
-                    "candidate_id": str(candidate_id),
-                    "completed": False
-                }
-            )
-
         result = await run_agent_with_retries(
             agent=get_analyzer_agent(),
             initial_state=initial_state,
             config=config,
             log_tag=log_tag,
             completion_check=completion_check,
-            error_broadcaster=error_broadcaster
+            error_broadcaster=None
         )
 
-        # Broadcast completion
-        from ...api.ws.manager import manager
-        import json
-        logger.info(f"[{log_tag}] [{thread_id}] Broadcasting analysis completion for candidate_id: {candidate_id}")
-        await manager.broadcast_to_job(
-            json.dumps({
-                "status": "Success",
-                "message": "Candidate analysis completed successfully",
-                "completed": True,
-                "candidate_id": str(candidate_id)
-            }),
-            str(job_id)
-        )
         return result
 
     except asyncio.CancelledError:

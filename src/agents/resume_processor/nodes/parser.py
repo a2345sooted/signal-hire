@@ -37,34 +37,23 @@ async def parser_node(state: ResumeState, config: RunnableConfig = None):
 1. **CAPTURE ALL INFO**: Do not miss anything. Extract name, email, phone, linkedin, location, all experience, education, skills, projects, etc.
 2. **NO TRUNCATION**: Capture every single bullet point, project detail, and skill. Do not summarize.
 3. **CONTACT INFO**: Rigorously look for Name, Email, Phone, LinkedIn, and Location/Address in the header.
-4. **WORK EXPERIENCE**: 
+4. **CANDIDATE PREFERENCES**: 
+    - **Engagement Types**: Identify if the candidate specifies preferred engagement types: fte (full-time), c2c (contract-to-contract), or w2.
+    - **Work Preference**: Identify if the candidate prefers remote, hybrid, or in-office work.
+    - **Relocation**: Check if the candidate mentions being open to relocation.
+    - **Citizenship**: Look for citizenship, work authorization, or visa status.
+5. **WORK EXPERIENCE**: 
     - Extract ALL roles, companies, and date ranges.
     - Preserve complete bullet points, including specific metrics, technologies, and achievements.
-5. **EDUCATION**: Capture degrees, institutions, graduation dates, and relevant coursework or honors.
-6. **SKILLS**: Extract a comprehensive list of technical skills, tools, languages, and frameworks.
-7. **PROJECTS**: Look for and extract: Personal Projects, AI Projects, Open Source, and Side Hustles. Capture name, description, and technologies used.
-8. **MISC**: Extract Military Service, Interests, Certifications, Patents, Publications, and Awards sections.
+6. **EDUCATION**: Capture degrees, institutions, graduation dates, and relevant coursework or honors.
+7. **SKILLS**: Extract a comprehensive list of technical skills, tools, languages, and frameworks.
+8. **PROJECTS**: Look for and extract: Personal Projects, AI Projects, Open Source, and Side Hustles. Capture name, description, and technologies used.
+9. **MISC**: Extract Military Service, Interests, Certifications, Patents, Publications, and Awards sections.
 
 # Resume text:
 {raw_text}"""
 
     try:
-        # Broadcast status
-        from ....api.ws.manager import manager
-        import json
-        job_id = state.get("job_id")
-        resume_id = state.get("resume_id")
-        if job_id:
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Parsing",
-                    "message": "Extracting structured data from resume...",
-                    "resume_id": str(resume_id),
-                    "completed": False
-                }),
-                str(job_id)
-            )
-
         # Check for cancellation before LLM call
         import asyncio
         checkpointer = get_checkpointer()

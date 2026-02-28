@@ -21,14 +21,6 @@ async def structured_data_node(state: JDState, config: RunnableConfig = None):
     import time
     start_time = time.time()
     
-    if thread_id_str != NO_THREAD_ID:
-        from ....api.ws.manager import manager
-        import json
-        await manager.broadcast_to_job(
-            json.dumps({"status": "Processing job description", "message": "Processing job description"}),
-            clean_id_str
-        )
-
     # Freeze input at node entry
     raw_text = state['raw_text']
     

@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 from ...agents.registry import get_resume_agent
 from ...agents.utils import generate_thread_id
 from ...constants import TASK_RESUME, CONFIG_THREAD_ID_KEY
-from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, broadcast_agent_error, cancel_agent_task
+from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, cancel_agent_task
 
 logger = logging.getLogger(__name__)
 
@@ -65,25 +65,13 @@ async def run_resume_agent(
         def completion_check(state: ResumeState) -> bool:
             return bool(state.get("structured_data") and state.get("resume_id"))
 
-        async def error_broadcaster(e: Exception):
-            await broadcast_agent_error(
-                job_id=job_id,
-                thread_id=thread_id,
-                error=e,
-                log_tag=log_tag,
-                extra_data={
-                    "resume_id": str(resume_id) if resume_id else None,
-                    "completed": False
-                }
-            )
-
         return await run_agent_with_retries(
             agent=get_resume_agent(),
             initial_state=initial_state,
             config=config,
             log_tag=log_tag,
             completion_check=completion_check,
-            error_broadcaster=error_broadcaster
+            error_broadcaster=None
         )
 
     except asyncio.CancelledError:

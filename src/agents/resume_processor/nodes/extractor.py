@@ -29,20 +29,6 @@ async def extractor_node(state: ResumeState, config: RunnableConfig = None):
     resume_id = state.get("resume_id")
     
     try:
-        # Broadcast status
-        from ....api.ws.manager import manager
-        import json
-        if resume_id and state.get("job_id"):
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Extracting",
-                    "message": "Extracting text from resume...",
-                    "resume_id": str(resume_id),
-                    "completed": False
-                }),
-                str(state.get("job_id"))
-            )
-
         # 1. Get file from storage
         response = await storage_service.get_file(file_key)
         file_data = await response.read()

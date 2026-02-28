@@ -18,6 +18,33 @@ class JobRepository:
         await self.session.flush()
         return note.id
 
+    async def get_job_note_by_id(self, note_id: uuid.UUID) -> Optional[JobNote]:
+        """Retrieve a specific job note by ID"""
+        result = await self.session.execute(
+            select(JobNote).where(JobNote.id == note_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def update_job_note(self, note_id: uuid.UUID, content: str) -> bool:
+        """Update a specific job note's content"""
+        note = await self.get_job_note_by_id(note_id)
+        if not note:
+            return False
+        
+        note.content = content
+        await self.session.flush()
+        return True
+
+    async def delete_job_note(self, note_id: uuid.UUID) -> bool:
+        """Delete a specific job note"""
+        note = await self.get_job_note_by_id(note_id)
+        if not note:
+            return False
+            
+        await self.session.delete(note)
+        await self.session.flush()
+        return True
+
     async def get_job_notes(self, job_id: uuid.UUID) -> list[Dict[str, Any]]:
         """Retrieve all notes for a job"""
         from ..models.db_models import User

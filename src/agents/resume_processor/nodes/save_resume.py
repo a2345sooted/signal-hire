@@ -76,22 +76,6 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
         raise RuntimeError(f"Embedding generation is required for resume storage: {str(e)}") from e
     
     try:
-        # Broadcast status
-        from ....api.ws.manager import manager
-        import json
-        job_id = state.get("job_id")
-        resume_id = state.get("resume_id")
-        if job_id:
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Saving",
-                    "message": "Storing resume and generating embedding...",
-                    "resume_id": str(resume_id),
-                    "completed": False
-                }),
-                str(job_id)
-            )
-
         async with AsyncSessionLocal() as db:
             from ....repositories.candidate_repository import CandidateRepository
             candidate_repo = CandidateRepository(db)
@@ -100,10 +84,32 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             # 1. Handle Candidate
             candidate_name = structured_data.get("contact", {}).get("name", "Unknown Candidate")
             candidate_email = structured_data.get("contact", {}).get("email", "unknown@unknown.com")
+            
+            # Map new fields from structured_data
+            phone = structured_data.get("contact", {}).get("phone")
+            location = structured_data.get("contact", {}).get("location")
+            linkedin_url = structured_data.get("contact", {}).get("linkedin")
+            citizenship = structured_data.get("citizenship")
+            engagement_types = structured_data.get("engagement_types")
+            work_preference = structured_data.get("work_preference")
+            open_to_relocation = structured_data.get("open_to_relocation")
+
             candidate_id = await candidate_repo.get_or_create_candidate_by_name(
                 candidate_name, 
                 email=candidate_email,
                 org_id=state.get("org_id")
+            )
+            
+            # Update candidate with full info extracted from resume
+            await candidate_repo.update_candidate(
+                candidate_id=candidate_id,
+                phone=phone,
+                location=location,
+                linkedin_url=linkedin_url,
+                citizenship=citizenship,
+                engagement_types=engagement_types,
+                work_preference=work_preference,
+                open_to_relocation=open_to_relocation
             )
             
             # 2. Handle Resume
@@ -166,22 +172,6 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                         org_id=state.get("org_id")
                     )
                 )
-
-        # 2. Broadcast completion to websocket if job_id is present
-        if job_id:
-            from ....api.ws.manager import manager
-            import json
-            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Broadcasting resume processing completion for resume_id: {resume_id}")
-            await manager.broadcast_to_job(
-                json.dumps({
-                    "status": "Analyzing",
-                    "message": "Resume processed. Starting ATS matching analysis...",
-                    "completed": False, # We set to False because we want to wait for analyzer
-                    "resume_id": str(resume_id),
-                    "candidate_id": str(candidate_id)
-                }),
-                str(job_id)
-            )
 
         if thread_id_str != NO_THREAD_ID:
             pass

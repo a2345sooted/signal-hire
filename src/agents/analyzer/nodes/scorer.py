@@ -147,22 +147,6 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     
     for attempt in range(max_retries):
         try:
-            # Broadcast status
-            from ....api.ws.manager import manager
-            import json
-            job_id = state.get("job_id")
-            resume_id = state.get("resume_id")
-            if job_id:
-                await manager.broadcast_to_job(
-                    json.dumps({
-                        "status": "Scoring",
-                        "message": "Calculating resume-job match score...",
-                        "resume_id": str(resume_id),
-                        "completed": False
-                    }),
-                    str(job_id)
-                )
-
             logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Scorer attempt {attempt + 1}")
             response = await llm_with_tool.ainvoke(messages)
             

@@ -62,6 +62,16 @@ class Candidate(Base):
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
     name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False)
+    
+    # New fields
+    phone = Column(String(50), nullable=True)
+    location = Column(String(255), nullable=True)
+    citizenship = Column(String(255), nullable=True)
+    linkedin_url = Column(String(255), nullable=True)
+    engagement_types = Column(JSONB, nullable=True)  # List of engagement types: fte, c2c, w2
+    work_preference = Column(JSONB, nullable=True)  # List of work preferences: remote, hybrid, in-office
+    open_to_relocation = Column(Boolean, nullable=True, default=False)
+    
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

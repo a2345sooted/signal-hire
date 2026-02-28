@@ -58,6 +58,12 @@ class ResumeSchema(BaseModel):
     ai_projects: List[Project] = Field(..., description="AI-specific projects")
     military_service: Optional[str] = Field(..., description="Military service history")
     interests: List[str] = Field(..., description="Personal interests, hobbies, certifications")
+    
+    # New fields for candidate matching
+    citizenship: Optional[str] = Field(None, description="Citizenship or work authorization status")
+    engagement_types: List[str] = Field(default_factory=list, description="Engagement types preferred: fte, c2c, w2")
+    work_preference: List[str] = Field(default_factory=list, description="Work preferences: remote, hybrid, in-office")
+    open_to_relocation: bool = Field(False, description="Whether the candidate is open to relocation")
 
 class UserNoteUpdate(BaseModel):
     content: str = Field(..., description="The updated or new factual note")

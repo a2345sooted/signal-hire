@@ -1,23 +1,11 @@
 import logging
 from fastapi import Depends, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-import uuid
-from datetime import datetime
 
 from src.database import get_db
 from src.repositories.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
-
-class UserResponse(BaseModel):
-    id: uuid.UUID
-    sub: str
-    email: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 async def get_me(
     request: Request,

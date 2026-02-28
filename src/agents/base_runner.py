@@ -106,44 +106,6 @@ def manage_active_task(thread_id: str, active_tasks: Dict[str, asyncio.Task]):
     active_tasks[thread_id] = task
     return task
 
-async def broadcast_agent_error(
-    job_id: Optional[uuid.UUID],
-    thread_id: str,
-    error: Exception,
-    log_tag: str,
-    extra_data: Optional[Dict[str, Any]] = None
-):
-    """Common error broadcasting to websockets."""
-    from ..api.ws.manager import manager
-    
-    # Strip prefix for channel name if it's the job channel
-    # Usually thread_id is like jd_<job_id> or resume_<job_id>
-    # The job channel expects the job_id as string
-    
-    # If it's a UUID-like job_id, we use it. If not, we might need to strip prefix from thread_id
-    if job_id:
-        channel = str(job_id)
-    elif thread_id.startswith("jd_"):
-        channel = thread_id[3:]
-    elif thread_id.startswith("resume_"):
-        channel = thread_id[7:]
-    elif thread_id.startswith("analysis_"):
-        channel = thread_id[9:]
-    else:
-        channel = thread_id
-    
-    payload = {
-        "status": "Processing failed",
-        "message": f"Processing failed: {str(error)}",
-        "failed": True,
-        "completed": False,
-        "job_id": str(job_id) if job_id else None
-    }
-    if extra_data:
-        payload.update(extra_data)
-        
-    await manager.broadcast_to_job(json.dumps(payload), channel)
-
 async def cancel_agent_task(
     thread_id: str,
     active_tasks: Dict[str, asyncio.Task],
