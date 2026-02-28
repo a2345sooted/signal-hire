@@ -43,10 +43,11 @@ class JobRepository:
     
     async def create_job(
         self,
-        raw_text: str,
-        structured_data: dict,
+        raw_text: Optional[str] = None,
+        structured_data: Optional[dict] = None,
         embedding: Optional[List[float]] = None,
         title: Optional[str] = None,
+        client_name: Optional[str] = None,
         markdown_content: Optional[str] = None,
         org_id: Optional[uuid.UUID] = None,
         location: Optional[str] = None,
@@ -61,6 +62,7 @@ class JobRepository:
         """Insert a new job with its embedding"""
         job = Job(
             title=title,
+            client_name=client_name,
             raw_text=raw_text,
             markdown_content=markdown_content,
             structured_data=structured_data,
@@ -107,6 +109,7 @@ class JobRepository:
         self,
         job_id: uuid.UUID,
         title: Optional[str] = None,
+        client_name: Optional[str] = None,
         structured_data: Optional[dict] = None,
         embedding: Optional[List[float]] = None,
         markdown_content: Optional[str] = None,
@@ -132,6 +135,8 @@ class JobRepository:
             
         if title is not None:
             job.title = title
+        if client_name is not None:
+            job.client_name = client_name
         if structured_data is not None:
             job.structured_data = structured_data
         if embedding is not None:
@@ -179,6 +184,7 @@ class JobRepository:
             "id": str(job.id),
             "org_id": str(job.org_id) if job.org_id else None,
             "title": job.title,
+            "client_name": job.client_name,
             "raw_text": job.raw_text,
             "markdown_content": job.markdown_content,
             "structured_data": job.structured_data,
@@ -240,6 +246,7 @@ class JobRepository:
             {
                 "id": str(job.id),
                 "title": job.title,
+                "client_name": job.client_name,
                 "raw_text": job.raw_text,
                 "markdown_content": job.markdown_content,
                 "structured_data": job.structured_data,

@@ -3,15 +3,15 @@ services:
     image: pgvector/pgvector:pg15
     container_name: signal-db
     environment:
-      POSTGRES_DB: signal
-      POSTGRES_USER: local
-      POSTGRES_PASSWORD: local
+      POSTGRES_DB: ${DB_NAME:-signal}
+      POSTGRES_USER: ${DB_USER:-local}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-local}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U local -d signal"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,45 +19,12 @@ services:
   flyway:
     image: flyway/flyway
     container_name: signal-flyway
-    command: -url=jdbc:postgresql://db:5432/signal -user=local -password=local migrate
+    command: -url=jdbc:postgresql://db:5432/${DB_NAME:-signal} -user=${DB_USER:-local} -password=${DB_PASSWORD:-local} migrate
     volumes:
       - ./db/migrations:/flyway/sql
     depends_on:
       db:
         condition: service_healthy
 
-  minio:
-    image: minio/minio:latest
-    container_name: signal-minio
-    command: server /data --console-address ":9001"
-    restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  minio_setup:
-    image: minio/mc:latest
-    container_name: signal-minio-setup
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set myminio http://minio:9000 minio minio123;
-      /usr/bin/mc mb --ignore-existing myminio/resumes;
-      exit 0;
-      "
-
 volumes:
   pgdata:
-  minio_data:

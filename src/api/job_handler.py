@@ -37,7 +37,8 @@ class JobNoteResponse(BaseModel):
 
 class JobCreate(BaseModel):
     title: str
-    raw_text: str
+    client_name: str
+    raw_text: Optional[str] = None
     location: Optional[str] = None
     work_arrangement: Optional[str] = None  # in-office, hybrid, remote
     hybrid_days_per_week: Optional[int] = None
@@ -49,6 +50,7 @@ class JobCreate(BaseModel):
 
 class JobUpdate(BaseModel):
     title: Optional[str] = None
+    client_name: Optional[str] = None
     raw_text: Optional[str] = None
     location: Optional[str] = None
     work_arrangement: Optional[str] = None
@@ -63,7 +65,8 @@ class JobResponse(BaseModel):
     id: str
     org_id: Optional[str] = None
     title: str
-    raw_text: str
+    client_name: Optional[str] = None
+    raw_text: Optional[str] = None
     markdown_text: Optional[str] = None
     location: Optional[str] = None
     work_arrangement: Optional[str] = None
@@ -116,14 +119,15 @@ async def create_job(
 
     # Only OWNER, ADMIN, or RECRUITER can create a job (all roles currently have this right)
     
-    logger.info(f"Creating job: {body.title} for org: {org.name} ({org.id})")
+    logger.info(f"Creating job: {body.title} for client: {body.client_name} for org: {org.name} ({org.id})")
     
     repo = JobRepository(db)
     
     # We use empty dict for structured_data as it's normally filled by agent
-    # but the model requires it to be non-null.
+    # but the model now allows it to be null.
     job_id = await repo.create_job(
         title=body.title,
+        client_name=body.client_name,
         raw_text=body.raw_text,
         org_id=org.id,
         location=body.location,
@@ -140,9 +144,7 @@ async def create_job(
     await db.commit()
     
     return {
-        "success": True,
-        "job_id": str(job_id),
-        "title": body.title
+        "job_id": str(job_id)
     }
 
 async def save_jd(
@@ -257,6 +259,7 @@ async def get_jobs(
         formatted_jobs.append({
             "id": str(job["id"]),
             "title": job.get("title") or "Untitled Job",
+            "client_name": job.get("client_name"),
             "markdown_text": job.get("markdown_content") or job.get("raw_text") or "",
             "raw_text": job.get("raw_text") or "",
             "location": job.get("location"),
@@ -414,7 +417,7 @@ async def get_resume_pdf(
         return Response(status_code=404, content="Resume PDF not found")
     
     try:
-        file_response = storage_service.get_file(resume["storage_key"])
+        file_response = await storage_service.get_file(resume["storage_key"])
         
         # Determine content type (default to application/pdf)
         filename = resume.get("filename", "resume.pdf").lower()
@@ -503,7 +506,7 @@ async def stop_resume_processing(job_id: uuid.UUID, db: AsyncSession = Depends(g
         # Delete from storage first
         if skeleton_resume.storage_key:
             try:
-                storage_service.delete_file(skeleton_resume.storage_key)
+                await storage_service.delete_file(skeleton_resume.storage_key)
             except Exception as e:
                 logger.error(f"Failed to delete file from storage: {e}")
         
@@ -566,7 +569,7 @@ async def delete_job_endpoint(
     for resume in resumes:
         if resume.storage_key:
             try:
-                storage_service.delete_file(resume.storage_key)
+                await storage_service.delete_file(resume.storage_key)
             except Exception as e:
                 logger.error(f"Failed to delete file for resume {resume.id}: {e}")
         await resume_repo.delete_resume(resume.id)
@@ -638,6 +641,7 @@ async def get_job(
         "id": str(job["id"]),
         "org_id": str(job["org_id"]) if job.get("org_id") else None,
         "title": job.get("title") or "Untitled Job",
+        "client_name": job.get("client_name"),
         "markdown_text": job.get("markdown_content") or job.get("raw_text") or "",
         "raw_text": job.get("raw_text") or "",
         "location": job.get("location"),

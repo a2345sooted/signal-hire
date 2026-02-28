@@ -10,9 +10,9 @@ python-multipart
 pypdf
 python-docx
 pydantic[email]
+pydantic-settings
 email-validator
 openai
-minio
 python-dotenv
 psycopg-pool
 psycopg[binary,pool]

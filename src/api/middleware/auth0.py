@@ -1,16 +1,16 @@
-import os
 import logging
 from typing import Any, Dict, Optional
 
 import httpx
 from jose import jwt
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
-AUTH0_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
-AUTH0_CLIENT_ID = os.getenv("AUTH0_CLIENT_ID")
-AUTH0_CLIENT_SECRET = os.getenv("AUTH0_CLIENT_SECRET")
+AUTH0_DOMAIN = settings.auth0_domain
+AUTH0_AUDIENCE = settings.auth0_audience
+AUTH0_CLIENT_ID = settings.auth0_client_id
+AUTH0_CLIENT_SECRET = settings.auth0_client_secret
 
 ALGORITHMS = ["RS256"]
 

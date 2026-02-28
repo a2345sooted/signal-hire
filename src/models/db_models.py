@@ -114,9 +114,10 @@ class Job(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
     title = Column(String(255), nullable=True)
-    raw_text = Column(Text, nullable=False)
+    client_name = Column(String(255), nullable=True)
+    raw_text = Column(Text, nullable=True)
     markdown_content = Column(Text, nullable=True)
-    structured_data = Column(JSONB, nullable=False)
+    structured_data = Column(JSONB, nullable=True)
     embedding = Column(Vector(1536), nullable=True)
     
     # New fields

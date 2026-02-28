@@ -1,15 +1,11 @@
 import logging
-import os
-
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://local:local@localhost:5432/signal")
-
-if DATABASE_URL.startswith("postgresql+asyncpg://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://", 1)
+DATABASE_URL = settings.database_url_psycopg
 
 # Global checkpointer instance and the pool
 _pool: AsyncConnectionPool = None

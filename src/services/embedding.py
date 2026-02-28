@@ -1,8 +1,5 @@
-import os
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
-
-load_dotenv()
+from src.config import settings
 
 def prepare_resume_text_for_embedding(structured_data: dict) -> str:
     """
@@ -79,7 +76,7 @@ def prepare_resume_text_for_embedding(structured_data: dict) -> str:
 
 class EmbeddingService:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.model = "text-embedding-3-small"  # 1536 dimensions
     
     async def generate_embedding(self, text: str) -> list[float]:

@@ -1,6 +1,7 @@
 import os
 
 from langchain_openai import ChatOpenAI
+from src.config import settings
 
 # Model Constants
 MODEL_4O_MINI = "MODEL_4O_MINI"
@@ -17,22 +18,16 @@ def get_model(model_name: str = MODEL_5_2, temperature: float = 0.0):
     # Use provided model_name
     final_model = model_name
     
-    # Check if final_model is an env var key
-    if final_model in [MODEL_4O_MINI, MODEL_5_MINI, MODEL_5_2]:
-        env_model = os.getenv(final_model)
-        if env_model:
-            final_model = env_model
-    
-    # Map constants to actual model names if they aren't env vars (fallback)
-    if final_model == MODEL_4O_MINI and not os.getenv(MODEL_4O_MINI):
-        final_model = "gpt-4o-mini"
-    elif final_model == MODEL_5_MINI and not os.getenv(MODEL_5_MINI):
-        final_model = "gpt-5-mini-2025-08-07"
-    elif final_model == MODEL_5_2 and not os.getenv(MODEL_5_2):
-        final_model = "gpt-5.2-2025-12-11"
+    # Map constants to actual model names from settings
+    if final_model == MODEL_4O_MINI:
+        final_model = settings.model_4o_mini
+    elif final_model == MODEL_5_MINI:
+        final_model = settings.model_5_mini
+    elif final_model == MODEL_5_2:
+        final_model = settings.model_5_2
 
     return ChatOpenAI(
         model=final_model,
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=settings.openai_api_key,
         temperature=temperature
     )

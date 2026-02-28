@@ -40,7 +40,11 @@ The API will be available at `http://localhost:8000`.
 ### 3. Environment Variables
 Create a `.env` file in the root directory and add the following:
 - `OPENAI_API_KEY`: Your OpenAI API key.
-- `DATABASE_URL`: PostgreSQL connection string.
+- `DB_NAME`: Database name.
+- `DB_USER`: Database username.
+- `DB_PASSWORD`: Database password.
+- `DB_HOST`: Database host.
+- `DB_PORT`: Database port.
 - `AUTH0_DOMAIN`: Your Auth0 domain (e.g., `dev-xxx.us.auth0.com`).
 - `AUTH0_AUDIENCE`: Your Auth0 API Identifier.
 

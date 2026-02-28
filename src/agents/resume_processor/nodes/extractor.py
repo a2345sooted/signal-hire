@@ -44,13 +44,14 @@ async def extractor_node(state: ResumeState, config: RunnableConfig = None):
             )
 
         # 1. Get file from storage
-        response = storage_service.get_file(file_key)
-        file_data = response.read()
+        response = await storage_service.get_file(file_key)
+        file_data = await response.read()
+        await response.close()
         
         # 2. If DOCX, create PDF and store it in the same directory
         if original_filename.lower().endswith(".docx"):
             logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] DOCX detected. Extracting text first to generate a structured PDF later if needed, or just converting now.")
-            # Actually, user said: "if it's a docx, create a pdf of it and store the pdf int he dir in minio."
+            # Actually, user said: "if it's a docx, create a pdf of it and store the pdf int he dir in storage."
             # Since we don't have a direct DOCX -> PDF converter that preserves layout perfectly without LibreOffice/Office, 
             # and we have a PDFGenerator that uses structured data, we might need to wait until we have structured data.
             # BUT the prompt says "then extract the data (using docx and/or pdf stuff) from the file."
@@ -62,7 +63,7 @@ async def extractor_node(state: ResumeState, config: RunnableConfig = None):
             # If we want to store a PDF version NOW, we'd need a way to convert docx to pdf bytes.
             # Since we don't have a generic docx->pdf converter, we'll extract text and maybe 
             # the save_resume_node will handle the PDF generation from structured data as it did before.
-            # HOWEVER, the requirement is specific: "if it's a docx, create a pdf of it and store the pdf int he dir in minio."
+            # HOWEVER, the requirement is specific: "if it's a docx, create a pdf of it and store the pdf int he dir in storage."
         else:
             raw_text = await extract_text_from_bytes(file_data, original_filename)
 

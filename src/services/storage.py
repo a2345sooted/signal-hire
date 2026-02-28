@@ -1,35 +1,51 @@
 import os
 import uuid
-
-from dotenv import load_dotenv
+import logging
+import asyncio
+import aioboto3
 from fastapi import UploadFile, HTTPException
-from minio import Minio
+from botocore.exceptions import ClientError
+from src.config import settings
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
 class StorageService:
     def __init__(self):
-        self.endpoint = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-        self.access_key = os.getenv("MINIO_ACCESS_KEY", "minio")
-        self.secret_key = os.getenv("MINIO_SECRET_KEY", "minio123")
-        self.secure = os.getenv("MINIO_SECURE", "False").lower() == "true"
+        self.endpoint_url = settings.s3_endpoint
+        self.access_key = settings.s3_access_key
+        self.secret_key = settings.s3_secret_key
+        self.region_name = settings.s3_region
+        self.bucket_name = settings.s3_bucket
         
-        self.client = Minio(
-            self.endpoint,
-            access_key=self.access_key,
-            secret_key=self.secret_key,
-            secure=self.secure
+        self.session = aioboto3.Session(
+            aws_access_key_id=self.access_key,
+            aws_secret_access_key=self.secret_key,
+            region_name=self.region_name
         )
-        self.bucket_name = os.getenv("MINIO_BUCKET_NAME", "resumes")
-        self._ensure_bucket_exists()
 
-    def _ensure_bucket_exists(self):
-        if not self.client.bucket_exists(self.bucket_name):
-            self.client.make_bucket(self.bucket_name)
+    async def _ensure_bucket_exists(self, s3_client):
+        try:
+            await s3_client.head_bucket(Bucket=self.bucket_name)
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code')
+            if error_code == '404':
+                logger.info(f"Bucket {self.bucket_name} does not exist. Creating it...")
+                try:
+                    if self.region_name == 'us-east-1':
+                        await s3_client.create_bucket(Bucket=self.bucket_name)
+                    else:
+                        await s3_client.create_bucket(
+                            Bucket=self.bucket_name,
+                            CreateBucketConfiguration={'LocationConstraint': self.region_name}
+                        )
+                except ClientError as ce:
+                    logger.error(f"Failed to create bucket {self.bucket_name}: {ce}")
+            else:
+                logger.error(f"Error checking bucket {self.bucket_name}: {e}")
 
     async def upload_file_data(self, file_data: bytes, filename: str, content_type: str = None, dir_id: str = None) -> str:
         """
-        Uploads file data to MinIO.
+        Uploads file data to S3.
         If dir_id is provided, stores file as dir_id/filename.
         Otherwise, generates a unique storage key.
         """
@@ -40,17 +56,24 @@ class StorageService:
             storage_key = f"{uuid.uuid4()}{file_extension}"
         
         try:
-            from io import BytesIO
-            self.client.put_object(
-                self.bucket_name,
-                storage_key,
-                BytesIO(file_data),
-                length=len(file_data),
-                content_type=content_type
-            )
+            async with self.session.client('s3', endpoint_url=self.endpoint_url) as s3:
+                # Optional: ensure bucket exists. In production, buckets are usually pre-created.
+                # await self._ensure_bucket_exists(s3)
+                
+                extra_args = {}
+                if content_type:
+                    extra_args['ContentType'] = content_type
+                
+                await s3.put_object(
+                    Bucket=self.bucket_name,
+                    Key=storage_key,
+                    Body=file_data,
+                    **extra_args
+                )
             return storage_key
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to upload to MinIO: {str(e)}")
+            logger.error(f"Failed to upload to S3: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to upload to S3: {str(e)}")
 
     async def upload_file(self, file: UploadFile) -> str:
         try:
@@ -60,22 +83,49 @@ class StorageService:
             try:
                 await file.seek(0)
             except Exception:
-                # If it's already closed or doesn't support seek, we don't want to crash here
                 pass
 
-    def delete_file(self, storage_key: str):
+    async def delete_file(self, storage_key: str):
         try:
-            self.client.remove_object(self.bucket_name, storage_key)
+            async with self.session.client('s3', endpoint_url=self.endpoint_url) as s3:
+                await s3.delete_object(Bucket=self.bucket_name, Key=storage_key)
         except Exception as e:
-            # We don't want to fail the whole deletion if MinIO cleanup fails, 
-            # but we should probably log it.
-            print(f"Failed to delete {storage_key} from MinIO: {str(e)}")
+            logger.error(f"Failed to delete {storage_key} from S3: {str(e)}")
 
-    def get_file(self, storage_key: str):
+    async def get_file(self, storage_key: str):
+        """
+        Returns a StreamingResponse-compatible iterator or the body of the S3 object.
+        Note: The caller must manage the lifecycle of the response if needed.
+        In FastAPI StreamingResponse, we can pass the body (which is an async stream in aioboto3).
+        """
         try:
-            response = self.client.get_object(self.bucket_name, storage_key)
-            return response
+            # Note: Using a context manager here might close the client before StreamingResponse finishes.
+            # However, aioboto3 clients should be used within 'async with'.
+            # To handle this for StreamingResponse, we might need a wrapper or use boto3 (sync) 
+            # or keep the client open.
+            # For simplicity and given the usage in job_handler.py, let's see how it's used.
+            s3_client = await self.session.client('s3', endpoint_url=self.endpoint_url).__aenter__()
+            response = await s3_client.get_object(Bucket=self.bucket_name, Key=storage_key)
+            
+            # We return a wrapper that closes the client when the body is closed
+            class StreamWrapper:
+                def __init__(self, body, client):
+                    self.body = body
+                    self.client = client
+                
+                def __aiter__(self):
+                    return self.body.__aiter__()
+                
+                async def read(self, n=-1):
+                    return await self.body.read(n)
+                
+                async def close(self):
+                    await self.body.close()
+                    await self.client.__aexit__(None, None, None)
+
+            return StreamWrapper(response['Body'], s3_client)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to retrieve file from MinIO: {str(e)}")
+            logger.error(f"Failed to retrieve file from S3: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file from S3: {str(e)}")
 
 storage_service = StorageService()

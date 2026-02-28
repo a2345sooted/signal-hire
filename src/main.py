@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from src.api.router import router
 from src.api.middleware.auth import AuthMiddleware
 from src.database import engine
+from src.config import settings
 from src.logging_config import setup_logging
 from src.agents.checkpointer import init_checkpointer, close_checkpointer
 
@@ -15,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(fast_app: FastAPI):
-    logger.info("Starting up signal-hire-service...")
+    logger.info("Starting up signal-hire-service with validated configuration...")
+    # Config is already validated by Pydantic Settings on import in src.config
     
     # 1. Initialize checkpointer
     checkpointer = await init_checkpointer()
