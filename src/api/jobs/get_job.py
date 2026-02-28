@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.organization_repository import OrganizationRepository
+from src.agents.jd_processor.run import is_jd_processing_active
 from .models import JobResponse
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,16 @@ async def get_job(
     if job.get("org_id") and str(job.get("org_id")) != str(org.id):
         raise HTTPException(status_code=403, detail="Job does not belong to this organization")
     
+    # Check if a processing task is active for this job
+    is_processing = is_jd_processing_active(job_id)
+    
     # Use the JobResponse model to ensure all fields are returned
     job_data = {
         "id": str(job["id"]),
         "title": job.get("title") or "Untitled Job",
         "client_name": job.get("client_name"),
         "raw_text": job.get("raw_text"),
-        "markdown_text": job.get("markdown_content") or job.get("raw_text") or "",
+        "markdown_text": "SIGNAL_PROCESSING" if is_processing else (job.get("markdown_content") or job.get("raw_text") or ""),
         "location": job.get("location"),
         "work_arrangement": job.get("work_arrangement"),
         "hybrid_days_per_week": job.get("hybrid_days_per_week"),

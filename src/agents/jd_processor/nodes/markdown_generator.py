@@ -28,21 +28,24 @@ async def markdown_generator_node(state: JDState, config: RunnableConfig = None)
 Respond ONLY with the Markdown content.
 
 HIGHLIGHTING RULES:
-Use <mark> tags with ONLY these classes (DO NOT use bold/italics):
-1. hl-yellow: Technical skills/tools (e.g., Python, AWS, RAG).
-2. hl-green: Key responsibilities/actions (e.g., "Lead the charge", "Architect").
-3. hl-blue: Certifications, education, or years of experience.
+BE GENEROUS with highlighting. Use <mark> tags with ONLY these classes (DO NOT use bold/italics):
+1. hl-yellow: Technical skills, tools, and technologies (e.g., Python, AWS, RAG, Distributed Systems).
+2. hl-green: Key responsibilities, actions, and impact statements (e.g., "Lead the charge", "Architect", "Mentoring", "Collaborating").
+3. hl-blue: Certifications, education, years of experience, or specific requirements (e.g., "10+ years", "Bachelor's degree").
 
 FEW-SHOT EXAMPLE:
-Input: Equifax is seeking a Principal Engineer to lead the charge. Requirements: Bachelor's degree and 7+ years experience.
+Input: Equifax is seeking a Principal Engineer to lead the charge. Requirements: Bachelor's degree and 7+ years experience. Deep knowledge of Python and AWS.
 Output: Equifax is seeking a Principal Engineer to <mark class="hl-green">lead the charge</mark>.
 - <mark class="hl-blue">Bachelor's degree</mark>
 - <mark class="hl-blue">7+ years experience</mark>
+- Deep knowledge of <mark class="hl-yellow">Python</mark> and <mark class="hl-yellow">AWS</mark>.
 
 CRITICAL: 
 - Start directly with content. 
 - NO title/header. 
 - NO bolding.
+- Use ONLY header levels 1, 2, or 3 (i.e., #, ##, or ###). DO NOT use level 4 or lower.
+- PRESERVE ALL ORIGINAL LINE BREAKS and structure from the input.
 
 Job Description:
 {raw_text}"""

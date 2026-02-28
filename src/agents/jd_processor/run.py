@@ -70,6 +70,9 @@ async def cancel_jd_agent(job_id: uuid.UUID):
     thread_id = generate_thread_id("jd", job_id)
     return await cancel_agent_task(thread_id, _active_jd_tasks, "JD_PROCESSOR_RUN")
 
-    # Fallback (should not be reached due to raise above)
-    raise RuntimeError("JD conversion failed unexpectedly")
+
+def is_jd_processing_active(job_id: uuid.UUID) -> bool:
+    """Check if a JD processing task is currently active for a given job_id."""
+    thread_id = generate_thread_id("jd", job_id)
+    return thread_id in _active_jd_tasks
 

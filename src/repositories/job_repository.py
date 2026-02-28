@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..models.db_models import Job, Resume, JobNote
+from ..models.db_models import Job, Resume, JobNote, Embedding
 
 
 class JobRepository:
@@ -106,6 +106,29 @@ class JobRepository:
             for note in notes
         ]
     
+    async def add_embeddings(
+        self,
+        job_id: Optional[uuid.UUID] = None,
+        candidate_id: Optional[uuid.UUID] = None,
+        resume_id: Optional[uuid.UUID] = None,
+        embeddings: List[Dict[str, Any]] = None
+    ):
+        """Add multiple embeddings to an entity"""
+        if not embeddings:
+            return
+            
+        for emb_data in embeddings:
+            emb = Embedding(
+                job_id=job_id,
+                candidate_id=candidate_id,
+                resume_id=resume_id,
+                embedding_type=emb_data["type"],
+                vector=emb_data["vector"],
+                metadata_json=emb_data.get("metadata")
+            )
+            self.session.add(emb)
+        await self.session.flush()
+
     async def create_job(
         self,
         raw_text: Optional[str] = None,
@@ -131,7 +154,6 @@ class JobRepository:
             raw_text=raw_text,
             markdown_content=markdown_content,
             structured_data=structured_data,
-            embedding=embedding,
             org_id=org_id,
             location=location,
             work_arrangement=work_arrangement,
@@ -144,6 +166,16 @@ class JobRepository:
         )
         self.session.add(job)
         await self.session.flush()
+
+        if embedding:
+            emb = Embedding(
+                job_id=job.id,
+                embedding_type="legacy",
+                vector=embedding
+            )
+            self.session.add(emb)
+            await self.session.flush()
+
         return job.id
 
     async def create_job_with_id(
@@ -163,11 +195,20 @@ class JobRepository:
             raw_text=raw_text,
             markdown_content=markdown_content,
             structured_data=structured_data,
-            embedding=embedding,
             org_id=org_id
         )
         self.session.add(job)
         await self.session.flush()
+
+        if embedding:
+            emb = Embedding(
+                job_id=job.id,
+                embedding_type="legacy",
+                vector=embedding
+            )
+            self.session.add(emb)
+            await self.session.flush()
+
         return job.id
     
     async def update_job(
@@ -205,7 +246,18 @@ class JobRepository:
         if structured_data is not None:
             job.structured_data = structured_data
         if embedding is not None:
-            job.embedding = embedding
+            # Delete existing embeddings of type 'legacy' and add new one
+            # Alternatively, we could just add a new one, but for 'update' it usually means replacement
+            from sqlalchemy import delete
+            await self.session.execute(
+                delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
+            )
+            emb = Embedding(
+                job_id=job_id,
+                embedding_type="legacy",
+                vector=embedding
+            )
+            self.session.add(emb)
         if markdown_content is not None:
             job.markdown_content = markdown_content
         if org_id is not None:
@@ -258,6 +310,15 @@ class JobRepository:
         )
         recommended_candidates = recommended_result.scalars().all()
 
+        # Get embeddings
+        from ..models.db_models import Embedding
+        emb_result = await self.session.execute(
+            select(Embedding)
+            .where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
+            .order_by(Embedding.created_at.desc())
+        )
+        legacy_embedding = emb_result.scalars().first()
+
         return {
             "id": str(job.id),
             "org_id": str(job.org_id) if job.org_id else None,
@@ -266,7 +327,7 @@ class JobRepository:
             "raw_text": job.raw_text,
             "markdown_content": job.markdown_content,
             "structured_data": job.structured_data,
-            "embedding": job.embedding,
+            "embedding": legacy_embedding.vector if legacy_embedding else None,
             "location": job.location,
             "work_arrangement": job.work_arrangement,
             "hybrid_days_per_week": job.hybrid_days_per_week,
@@ -307,9 +368,11 @@ class JobRepository:
         result = await self.session.execute(
             select(
                 Job,
-                (1 - Job.embedding.cosine_distance(query_embedding)).label("similarity")
+                (1 - Embedding.vector.cosine_distance(query_embedding)).label("similarity")
             )
-            .order_by(Job.embedding.cosine_distance(query_embedding))
+            .join(Embedding, Embedding.job_id == Job.id)
+            .where(Embedding.embedding_type == "legacy")
+            .order_by(Embedding.vector.cosine_distance(query_embedding))
             .limit(limit)
         )
         

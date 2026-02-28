@@ -1,11 +1,12 @@
 import logging
 from typing import Annotated
-from fastapi import Depends, Request, HTTPException, Header
+from fastapi import Depends, Request, HTTPException, Header, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.organization_repository import OrganizationRepository
+from src.agents.jd_processor.run import run_jd_agent
 from .models import JobCreate
 
 logger = logging.getLogger(__name__)
@@ -14,11 +15,12 @@ async def create_job(
     request: Request,
     body: JobCreate,
     x_org_slug: Annotated[str, Header()],
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Create a job directly in the database.
-    Does NOT trigger the AI agent for now.
+    Triggers the AI agent asynchronously if raw_text is provided.
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
@@ -58,6 +60,16 @@ async def create_job(
     )
     
     await db.commit()
+    
+    # If raw_text was provided, trigger the JD agent asynchronously
+    if body.raw_text:
+        logger.info(f"Job created with raw_text for {job_id}. Triggering JD agent asynchronously.")
+        background_tasks.add_task(
+            run_jd_agent, 
+            raw_text=body.raw_text, 
+            job_id=job_id, 
+            org_id=org.id
+        )
     
     return {
         "job_id": str(job_id)

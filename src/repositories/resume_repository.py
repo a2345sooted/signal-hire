@@ -4,13 +4,36 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from ..models.db_models import Resume
+from ..models.db_models import Resume, Embedding
 
 
 class ResumeRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
     
+    async def add_embeddings(
+        self,
+        job_id: Optional[uuid.UUID] = None,
+        candidate_id: Optional[uuid.UUID] = None,
+        resume_id: Optional[uuid.UUID] = None,
+        embeddings: List[Dict[str, Any]] = None
+    ):
+        """Add multiple embeddings to an entity"""
+        if not embeddings:
+            return
+            
+        for emb_data in embeddings:
+            emb = Embedding(
+                job_id=job_id,
+                candidate_id=candidate_id,
+                resume_id=resume_id,
+                embedding_type=emb_data["type"],
+                vector=emb_data["vector"],
+                metadata_json=emb_data.get("metadata")
+            )
+            self.session.add(emb)
+        await self.session.flush()
+
     async def create_resume(
         self,
         original_filename: str,
@@ -49,7 +72,6 @@ class ResumeRepository:
             raw_text=raw_text,
             raw_text_hash=text_hash,
             structured_data=structured_data or {},
-            embedding=embedding,
             storage_key=storage_key,
             job_id=job_id,
             candidate_id=candidate_id,
@@ -58,6 +80,17 @@ class ResumeRepository:
         )
         self.session.add(resume)
         await self.session.flush()
+
+        if embedding:
+            emb = Embedding(
+                resume_id=resume.id,
+                candidate_id=candidate_id,
+                embedding_type="legacy",
+                vector=embedding
+            )
+            self.session.add(emb)
+            await self.session.flush()
+
         return resume.id
 
     async def get_resume_by_hash(self, text_hash: str) -> Optional[Dict[str, Any]]:
@@ -85,16 +118,20 @@ class ResumeRepository:
         """Find resumes similar to the query embedding using cosine similarity"""
         # Using pgvector's cosine distance operator <=>
         # similarity = 1 - distance
-        stmt = select(
-            Resume,
-            (1 - Resume.embedding.cosine_distance(query_embedding)).label("similarity")
+        stmt = (
+            select(
+                Resume,
+                (1 - Embedding.vector.cosine_distance(query_embedding)).label("similarity")
+            )
+            .join(Embedding, Embedding.resume_id == Resume.id)
+            .where(Embedding.embedding_type == "legacy")
         )
         
         if exclude_ids:
             stmt = stmt.where(Resume.id.notin_(exclude_ids))
             
         result = await self.session.execute(
-            stmt.order_by(Resume.embedding.cosine_distance(query_embedding))
+            stmt.order_by(Embedding.vector.cosine_distance(query_embedding))
             .limit(limit)
         )
         
@@ -119,11 +156,21 @@ class ResumeRepository:
         if not resume:
             return None
             
+        # Get embeddings
+        from ..models.db_models import Embedding
+        emb_result = await self.session.execute(
+            select(Embedding)
+            .where(Embedding.resume_id == resume_id, Embedding.embedding_type == "legacy")
+            .order_by(Embedding.created_at.desc())
+        )
+        legacy_embedding = emb_result.scalars().first()
+
         return {
             "id": str(resume.id),
             "filename": resume.original_filename,
             "raw_text": resume.raw_text,
             "structured_data": resume.structured_data,
+            "embedding": legacy_embedding.vector if legacy_embedding else None,
             "storage_key": resume.storage_key,
             "job_id": str(resume.job_id) if resume.job_id else None,
             "candidate_id": str(resume.candidate_id) if resume.candidate_id else None,
@@ -247,7 +294,17 @@ class ResumeRepository:
         if structured_data is not None:
             resume.structured_data = structured_data
         if embedding is not None:
-            resume.embedding = embedding
+            from sqlalchemy import delete
+            await self.session.execute(
+                delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type == "legacy")
+            )
+            emb = Embedding(
+                resume_id=resume_id,
+                candidate_id=resume.candidate_id,
+                embedding_type="legacy",
+                vector=embedding
+            )
+            self.session.add(emb)
         if storage_key is not None:
             resume.storage_key = storage_key
         if job_id is not None:

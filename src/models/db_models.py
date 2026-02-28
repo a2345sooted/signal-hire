@@ -81,6 +81,7 @@ class Candidate(Base):
     attached_jobs = relationship("JobAttachment", back_populates="candidate", cascade="all, delete-orphan")
     recommended_jobs = relationship("JobRecommendation", back_populates="candidate", cascade="all, delete-orphan")
     candidate_recommendations = relationship("CandidateRecommendation", back_populates="candidate", cascade="all, delete-orphan")
+    embeddings = relationship("Embedding", back_populates="candidate", cascade="all, delete-orphan")
 
 
 class CandidateNote(Base):
@@ -106,7 +107,6 @@ class Resume(Base):
     raw_text = Column(Text, nullable=False)
     raw_text_hash = Column(String(64), nullable=True)
     structured_data = Column(JSONB, nullable=False)
-    embedding = Column(Vector(1536), nullable=True)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
@@ -117,6 +117,7 @@ class Resume(Base):
     job = relationship("Job", back_populates="resumes")
     candidate = relationship("Candidate", back_populates="resumes")
     analyses = relationship("Analysis", back_populates="resume", cascade="all, delete-orphan")
+    embeddings = relationship("Embedding", back_populates="resume", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index('ix_resumes_raw_text_hash', 'raw_text_hash'),
@@ -132,7 +133,6 @@ class Job(Base):
     raw_text = Column(Text, nullable=True)
     markdown_content = Column(Text, nullable=True)
     structured_data = Column(JSONB, nullable=True)
-    embedding = Column(Vector(1536), nullable=True)
     
     # New fields
     location = Column(String(255), nullable=True)
@@ -153,6 +153,7 @@ class Job(Base):
     attached_candidates = relationship("JobAttachment", back_populates="job", cascade="all, delete-orphan")
     recommended_candidates = relationship("JobRecommendation", back_populates="job", cascade="all, delete-orphan")
     candidate_recommendations = relationship("CandidateRecommendation", back_populates="job", cascade="all, delete-orphan")
+    embeddings = relationship("Embedding", back_populates="job", cascade="all, delete-orphan")
 
 class JobAttachment(Base):
     __tablename__ = "job_attachments"
@@ -216,3 +217,20 @@ class Analysis(Base):
     candidate = relationship("Candidate", back_populates="analyses")
     job = relationship("Job", back_populates="analyses")
     resume = relationship("Resume", back_populates="analyses")
+    
+class Embedding(Base):
+    __tablename__ = "embeddings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True)
+    resume_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="CASCADE"), nullable=True)
+    embedding_type = Column(String(50), nullable=False)
+    vector = Column(Vector(1536), nullable=False)
+    metadata_json = Column("metadata", JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    job = relationship("Job", back_populates="embeddings")
+    candidate = relationship("Candidate", back_populates="embeddings")
+    resume = relationship("Resume", back_populates="embeddings")

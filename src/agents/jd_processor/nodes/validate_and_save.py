@@ -1,3 +1,4 @@
+import json
 import logging
 
 from langchain_core.runnables import RunnableConfig
@@ -11,29 +12,6 @@ from ....services.embedding import EmbeddingService
 logger = logging.getLogger(__name__)
 
 embedding_service = EmbeddingService()
-
-def prepare_job_text_for_embedding(structured_data: dict) -> str:
-    """
-    Convert structured job description data into a single text representation
-    optimized for semantic search and similarity matching.
-    """
-    parts = []
-    
-    if company := structured_data.get("company"):
-        parts.append(f"Company: {company}")
-    
-    if title := structured_data.get("title"):
-        parts.append(f"Title: {title}")
-    
-    if requirements := structured_data.get("requirements"):
-        parts.append("Requirements:")
-        for key, value in requirements.items():
-            parts.append(f"{key}: {value}")
-    
-    if skills := structured_data.get("skills", []):
-        parts.append(f"Skills: {', '.join(skills)}")
-        
-    return "\n".join(parts)
 
 async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
     """
@@ -66,11 +44,27 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
     job_title = structured_data_dict.get("job_title") or structured_data_dict.get("title")
 
     try:
-        # Generate real embedding for the job description
-        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating embedding for JD...")
-        prepared_text = prepare_job_text_for_embedding(structured_data_dict)
-        embedding = await embedding_service.generate_embedding(prepared_text)
-        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Embedding generated successfully.")
+        # 1. Generate legacy embedding for the job description
+        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating legacy embedding for JD...")
+        prepared_text = json.dumps(structured_data_dict, indent=2)
+        legacy_embedding = await embedding_service.generate_embedding(prepared_text)
+        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Legacy embedding generated successfully.")
+
+        # 2. Generate chunked embeddings for full text
+        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating chunked embeddings for full text...")
+        full_text = state.get("raw_text", "")
+        chunks = embedding_service.chunk_text(full_text)
+        chunk_embeddings = await embedding_service.generate_embeddings(chunks)
+        
+        # NOTE: We ONLY include chunks here because 'legacy' is handled by update_job/create_job methods
+        embeddings_to_save = []
+        for i, (chunk, vector) in enumerate(zip(chunks, chunk_embeddings)):
+            embeddings_to_save.append({
+                "type": "chunk",
+                "vector": vector,
+                "metadata": {"index": i, "content": chunk}
+            })
+        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] {len(chunks)} chunks generated and embedded.")
 
         async with AsyncSessionLocal() as db:
             repo = JobRepository(db)
@@ -84,9 +78,11 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         job_id=job_id,
                         title=job_title,
                         structured_data=structured_data_dict,
-                        embedding=embedding,
+                        # Pass one for legacy backward compatibility if repo still needs it
+                        embedding=legacy_embedding,
                         markdown_content=markdown_content,
-                        org_id=state.get("org_id")
+                        org_id=state.get("org_id"),
+                        raw_text=state.get("raw_text")
                     )
                 else:
                     logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Creating new job with ID {job_id}.")
@@ -96,10 +92,21 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         raw_text=state.get("raw_text"),
                         title=job_title,
                         structured_data=structured_data_dict,
-                        embedding=embedding,
+                        embedding=legacy_embedding,
                         markdown_content=markdown_content,
                         org_id=state.get("org_id")
                     )
+                
+                # Store all new embeddings
+                # Note: update_job might have replaced the legacy one, but we also want the chunks
+                # For now, let's explicitly add them via the new method.
+                # We should probably clear non-legacy ones if updating.
+                from sqlalchemy import delete
+                from src.models.db_models import Embedding
+                await db.execute(
+                    delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type != "legacy")
+                )
+                await repo.add_embeddings(job_id=job_id, embeddings=embeddings_to_save)
             else:
                 logger.error(f"[JD_PROCESSOR] [{clean_id_str}] No job_id provided to update/create.")
             

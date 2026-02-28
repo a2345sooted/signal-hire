@@ -1,3 +1,4 @@
+import json
 import logging
 
 from langchain_core.runnables import RunnableConfig
@@ -65,14 +66,31 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
     if not contact.get("name") and not contact.get("email"):
          logger.warning(f"[RESUME_PROCESSOR] [{clean_id_str}] Resume parser produced no name or email - possible parsing issue.")
 
-    # Generate embedding
+    # Generate embeddings
     try:
-        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Generating embedding for resume...")
-        prepared_text = embedding_service.prepare_resume_text_for_embedding(structured_data)
-        embedding = await embedding_service.generate_embedding(prepared_text)
-        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Embedding generated successfully.")
+        # 1. Generate legacy embedding for the resume summary
+        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Generating legacy embedding for resume summary...")
+        prepared_text = json.dumps(structured_data, indent=2)
+        legacy_embedding = await embedding_service.generate_embedding(prepared_text)
+        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Legacy embedding generated successfully.")
+
+        # 2. Generate chunked embeddings for full text
+        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Generating chunked embeddings for full resume text...")
+        full_text = raw_text or ""
+        chunks = embedding_service.chunk_text(full_text)
+        chunk_embeddings = await embedding_service.generate_embeddings(chunks)
+        
+        # NOTE: We ONLY include chunks here because 'legacy' is handled by update_resume/create_resume methods
+        embeddings_to_save = []
+        for i, (chunk, vector) in enumerate(zip(chunks, chunk_embeddings)):
+            embeddings_to_save.append({
+                "type": "chunk",
+                "vector": vector,
+                "metadata": {"index": i, "content": chunk}
+            })
+        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] {len(chunks)} chunks generated and embedded.")
     except Exception as e:
-        logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to generate embedding: {str(e)}")
+        logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to generate embeddings: {str(e)}")
         raise RuntimeError(f"Embedding generation is required for resume storage: {str(e)}") from e
     
     try:
@@ -121,7 +139,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                     resume_id=existing_resume_id,
                     raw_text=raw_text,
                     structured_data=structured_data,
-                    embedding=embedding,
+                    embedding=legacy_embedding,
                     storage_key=storage_key,
                     job_id=state.get("job_id"),
                     candidate_id=candidate_id
@@ -137,11 +155,19 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                     original_filename=unique_filename,
                     raw_text=raw_text,
                     structured_data=structured_data,
-                    embedding=embedding,
+                    embedding=legacy_embedding,
                     storage_key=storage_key,
                     job_id=state.get("job_id"),
                     candidate_id=candidate_id
                 )
+            
+            # 3. Handle additional embeddings
+            from sqlalchemy import delete
+            from src.models.db_models import Embedding
+            await db.execute(
+                delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type != "legacy")
+            )
+            await repo.add_embeddings(resume_id=resume_id, candidate_id=candidate_id, embeddings=embeddings_to_save)
             
             await db.commit()
             
