@@ -2,7 +2,7 @@ import logging
 import uuid
 import os
 from typing import Annotated
-from fastapi import Depends, UploadFile, File, Request, HTTPException, Header
+from fastapi import Depends, UploadFile, File, Request, HTTPException, Header, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -10,6 +10,9 @@ from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.repositories.resume_repository import ResumeRepository
 from src.services.storage import storage_service
+from src.services.parser import extract_text_from_bytes
+from src.agents.resume_processor.run import run_resume_agent
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +23,7 @@ async def upload_resume(
     candidate_id: uuid.UUID,
     x_org_slug: Annotated[str, Header()],
     file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -68,8 +72,6 @@ async def upload_resume(
 
     # Record in resumes table
     resume_repo = ResumeRepository(db)
-
-    # Check for duplicates by filename for this candidate
     existing_resumes = await resume_repo.get_resumes_by_candidate_id(candidate_id)
     for res in existing_resumes:
         if res.original_filename == file.filename:
@@ -79,30 +81,67 @@ async def upload_resume(
                 detail=f"A resume with the filename '{file.filename}' already exists for this candidate."
             )
 
-    # Upload to S3 with path: candidates/{candidate_id}/resumes/{filename}
+    # 0. Extract text and check for exact content duplicates
     file_data = await file.read()
-    dir_path = f"candidates/{candidate_id}/resumes"
-    storage_key = await storage_service.upload_file_data(
-        file_data,
-        file.filename,
-        file.content_type,
-        dir_id=dir_path
-    )
+    raw_text = await extract_text_from_bytes(file_data, file.filename)
+    
+    if raw_text:
+        text_hash = hashlib.sha256(raw_text.encode()).hexdigest()
+        existing_resume = await resume_repo.get_resume_by_hash(text_hash)
+        
+        if existing_resume:
+            matching_filename = existing_resume.get("original_filename") or "an existing resume"
+            logger.warning(f"Duplicate content detected for candidate {candidate_id}. Matches: {matching_filename}")
+            raise HTTPException(
+                status_code=409, 
+                detail=f"This resume exactly matches another resume already in the system: {matching_filename}"
+            )
 
-    # Create resume record in database
+    # 1. Create a skeleton record
+    unique_filename = await resume_repo.get_unique_filename(file.filename)
+
     resume_id = await resume_repo.create_resume(
-        original_filename=file.filename,
-        raw_text="", # Will be filled by agent if we trigger it, but for now we just upload
-        structured_data={"status": "uploaded"},
-        storage_key=storage_key,
+        original_filename=unique_filename,
+        raw_text=raw_text or "",
+        structured_data={},
+        storage_key=None,
         candidate_id=candidate_id,
         is_current=True
     )
 
+    # 2. Upload to storage using the resume_id as the directory name
+    storage_key = await storage_service.upload_file_data(
+        file_data, 
+        file.filename, 
+        file.content_type,
+        dir_id=str(resume_id)
+    )
+    
+    # 3. Update the resume record with the storage key
+    await resume_repo.update_resume(
+        resume_id=resume_id,
+        storage_key=storage_key
+    )
+    
     await db.commit()
+    
+    logger.info(f"Resume skeleton saved with ID: {resume_id} and storage key: {storage_key}. Starting agent...")
 
+    if background_tasks:
+        background_tasks.add_task(
+            run_resume_agent, 
+            file_key=storage_key, 
+            original_filename=unique_filename,
+            candidate_id=candidate_id,
+            resume_id=resume_id,
+            org_id=org.id,
+            raw_text=raw_text
+        )
+    
     return {
         "success": True,
-        "message": "Resume uploaded successfully",
-        "resume_id": str(resume_id)
+        "message": "Resume uploaded and processing started",
+        "resume_id": str(resume_id),
+        "filename": file.filename,
+        "candidate_id": str(candidate_id)
     }

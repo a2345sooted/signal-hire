@@ -18,6 +18,7 @@ async def run_resume_agent(
     file_key: Optional[str] = None,
     original_filename: Optional[str] = None,
     job_id: Optional[uuid.UUID] = None,
+    candidate_id: Optional[uuid.UUID] = None,
     resume_id: Optional[uuid.UUID] = None,
     raw_text: Optional[str] = None,
     org_id: Optional[uuid.UUID] = None
@@ -53,6 +54,7 @@ async def run_resume_agent(
             "file_key": file_key,
             "structured_data": None,
             "resume_id": resume_id,
+            "candidate_id": candidate_id,
             "job_id": job_id,
             "org_id": org_id,
             "upload_response": None,

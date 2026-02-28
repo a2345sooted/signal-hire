@@ -75,7 +75,7 @@ async def upload_resume(
     resume_id = await resume_repo.create_resume(
         original_filename=unique_filename,
         raw_text=raw_text or "",
-        structured_data={"filename": unique_filename, "status": "uploading"},
+        structured_data={},
         embedding=None,
         storage_key=None, # Will be set after upload
         job_id=job_id,
