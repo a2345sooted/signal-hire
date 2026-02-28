@@ -29,6 +29,12 @@ async def extractor_node(state: ResumeState, config: RunnableConfig = None):
     resume_id = state.get("resume_id")
     
     try:
+        # 0. Check if we already have raw_text in state
+        raw_text = state.get("raw_text")
+        if raw_text:
+            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Using raw_text provided in state.")
+            return {"raw_text": raw_text}
+
         # 1. Get file from storage
         response = await storage_service.get_file(file_key)
         file_data = await response.read()

@@ -10,6 +10,8 @@ from src.repositories.job_repository import JobRepository
 from src.repositories.resume_repository import ResumeRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.services.storage import storage_service
+from src.services.parser import extract_text_from_bytes
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,23 @@ async def upload_resume(
         
     logger.info(f"Received resume upload for job_id: {job_id}, filename: {resume.filename}, org: {org.slug}")
     
+    # 0. Extract text and check for exact duplicates
+    file_data = await resume.read()
+    raw_text = await extract_text_from_bytes(file_data, resume.filename)
+    
+    if raw_text:
+        text_hash = hashlib.sha256(raw_text.encode()).hexdigest()
+        resume_repo = ResumeRepository(db)
+        existing_resume = await resume_repo.get_resume_by_hash(text_hash)
+        
+        if existing_resume:
+            matching_filename = existing_resume.get("original_filename") or "an existing resume"
+            logger.warning(f"Duplicate resume detected. Matches: {matching_filename}")
+            raise HTTPException(
+                status_code=409, 
+                detail=f"This resume exactly matches another resume already in the system: {matching_filename}"
+            )
+
     # 1. Create a skeleton record in the database first to get a storage ID (resume_id)
     resume_repo = ResumeRepository(db)
     
@@ -55,7 +74,7 @@ async def upload_resume(
 
     resume_id = await resume_repo.create_resume(
         original_filename=unique_filename,
-        raw_text="",  # Empty initially, agent will fill it
+        raw_text=raw_text or "",
         structured_data={"filename": unique_filename, "status": "uploading"},
         embedding=None,
         storage_key=None, # Will be set after upload
@@ -64,7 +83,6 @@ async def upload_resume(
     )
     
     # 2. Upload to storage using the resume_id as the directory name
-    file_data = await resume.read()
     storage_key = await storage_service.upload_file_data(
         file_data, 
         resume.filename, 
@@ -89,7 +107,8 @@ async def upload_resume(
             original_filename=unique_filename,
             job_id=job_id,
             resume_id=resume_id,
-            org_id=org.id
+            org_id=org.id,
+            raw_text=raw_text
         )
     
     return {
