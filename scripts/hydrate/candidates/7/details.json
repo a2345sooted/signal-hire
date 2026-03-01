@@ -1,0 +1,14 @@
+{
+  "name": "Mark Thompson",
+  "email": "mark.thompson.hr@example.com",
+  "phone": "555-0107",
+  "location": "Boston, MA",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "in-office"
+  ],
+  "open_to_relocation": false
+}

@@ -1,0 +1,16 @@
+{
+  "name": "Rachel Adams",
+  "email": "rachel.adams.talent@example.com",
+  "phone": "555-0113",
+  "location": "San Francisco, CA",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time",
+    "contract"
+  ],
+  "work_preference": [
+    "remote",
+    "hybrid"
+  ],
+  "open_to_relocation": false
+}

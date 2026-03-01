@@ -74,7 +74,7 @@ class ResumeRepository:
             emb = Embedding(
                 resume_id=resume.id,
                 candidate_id=candidate_id,
-                embedding_type="legacy",
+                embedding_type="full",
                 vector=embedding
             )
             self.session.add(emb)
@@ -124,7 +124,7 @@ class ResumeRepository:
             emb = Embedding(
                 resume_id=resume.id,
                 candidate_id=candidate_id,
-                embedding_type="legacy",
+                embedding_type="full",
                 vector=embedding
             )
             self.session.add(emb)
@@ -163,7 +163,7 @@ class ResumeRepository:
                 (1 - Embedding.vector.cosine_distance(query_embedding)).label("similarity")
             )
             .join(Embedding, Embedding.resume_id == Resume.id)
-            .where(Embedding.embedding_type == "legacy")
+            .where(Embedding.embedding_type == "full")
         )
         
         if exclude_ids:
@@ -199,17 +199,17 @@ class ResumeRepository:
         from ..models.db_models import Embedding
         emb_result = await self.session.execute(
             select(Embedding)
-            .where(Embedding.resume_id == resume_id, Embedding.embedding_type == "legacy")
+            .where(Embedding.resume_id == resume_id, Embedding.embedding_type == "full")
             .order_by(Embedding.created_at.desc())
         )
-        legacy_embedding = emb_result.scalars().first()
+        resume_embedding = emb_result.scalars().first()
 
         return {
             "id": str(resume.id),
             "filename": resume.original_filename,
             "raw_text": resume.raw_text,
             "structured_data": resume.structured_data,
-            "embedding": legacy_embedding.vector if legacy_embedding else None,
+            "embedding": resume_embedding.vector if resume_embedding else None,
             "storage_key": resume.storage_key,
             "job_id": str(resume.job_id) if resume.job_id else None,
             "candidate_id": str(resume.candidate_id) if resume.candidate_id else None,
@@ -323,12 +323,12 @@ class ResumeRepository:
         if embedding is not None:
             from sqlalchemy import delete
             await self.session.execute(
-                delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type == "legacy")
+                delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type == "full")
             )
             emb = Embedding(
                 resume_id=resume_id,
                 candidate_id=resume.candidate_id,
-                embedding_type="legacy",
+                embedding_type="full",
                 vector=embedding
             )
             self.session.add(emb)

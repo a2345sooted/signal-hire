@@ -1,0 +1,14 @@
+{
+  "name": "James Wilson",
+  "email": "james.wilson.esq@example.com",
+  "phone": "555-0111",
+  "location": "Washington, D.C.",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "hybrid"
+  ],
+  "open_to_relocation": true
+}

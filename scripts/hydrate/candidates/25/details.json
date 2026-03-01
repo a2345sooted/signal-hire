@@ -1,0 +1,14 @@
+{
+  "name": "Robert Taylor",
+  "email": "robert.taylor.fac@example.com",
+  "phone": "555-0125",
+  "location": "San Diego, CA",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "in-office"
+  ],
+  "open_to_relocation": false
+}

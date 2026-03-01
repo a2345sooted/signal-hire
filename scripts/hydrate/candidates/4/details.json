@@ -1,0 +1,16 @@
+{
+  "name": "Emily Watson",
+  "email": "emily.watson.ui@example.com",
+  "phone": "555-0104",
+  "location": "Seattle, WA",
+  "citizenship": "US Citizen",
+  "linkedin_url": "https://linkedin.com/in/emilywatson-ui",
+  "engagement_types": [
+    "full-time",
+    "intern"
+  ],
+  "work_preference": [
+    "hybrid"
+  ],
+  "open_to_relocation": false
+}

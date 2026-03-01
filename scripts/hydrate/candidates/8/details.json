@@ -1,0 +1,14 @@
+{
+  "name": "Sarah Goldberg",
+  "email": "sarah.g.finance@example.com",
+  "phone": "555-0108",
+  "location": "New York, NY",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "hybrid"
+  ],
+  "open_to_relocation": false
+}

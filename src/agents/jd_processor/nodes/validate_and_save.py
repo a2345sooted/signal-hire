@@ -48,9 +48,9 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
     job_title = structured_data_dict.get("job_title") or structured_data_dict.get("title")
 
     try:
-        # 1. Generate legacy embedding for the job description
-        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating legacy embedding for JD...")
-        
+        # 1. Generate full embedding for the job description
+        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating full embedding for JD...")
+
         job_notes = []
         async with AsyncSessionLocal() as db:
             tmp_repo = JobRepository(db)
@@ -58,7 +58,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                 job_notes = await tmp_repo.get_job_notes(job_id)
 
         prepared_text = embedding_service.prepare_job_text_for_embedding(
-            structured_data_dict, 
+            structured_data_dict,
             job_data={
                 "title": job_title,
                 "location": state.get("location") or (details_dict.get("location") if details_dict else None),
@@ -72,8 +72,8 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
             },
             notes=job_notes
         )
-        legacy_embedding = await embedding_service.generate_embedding(prepared_text)
-        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Legacy embedding generated successfully.")
+        job_embedding = await embedding_service.generate_embedding(prepared_text)
+        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Full embedding generated successfully.")
 
         # 2. Generate chunked embeddings for full text
         logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating chunked embeddings for full text...")
@@ -81,7 +81,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
         chunks = embedding_service.chunk_text(full_text)
         chunk_embeddings = await embedding_service.generate_embeddings(chunks)
         
-        # NOTE: We ONLY include chunks here because 'legacy' is handled by update_job/create_job methods
+        # NOTE: We ONLY include chunks here because 'full' is handled by update_job/create_job methods
         embeddings_to_save = []
         for i, (chunk, vector) in enumerate(zip(chunks, chunk_embeddings)):
             embeddings_to_save.append({
@@ -104,7 +104,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                     update_kwargs = {
                         "job_id": job_id,
                         "structured_data": structured_data_dict,
-                        "embedding": legacy_embedding,
+                        "embedding": job_embedding,
                         "markdown_content": markdown_content,
                         "org_id": state.get("org_id"),
                         "raw_text": state.get("raw_text"),
@@ -151,7 +151,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         "raw_text": state.get("raw_text"),
                         "title": job_title,
                         "structured_data": structured_data_dict,
-                        "embedding": legacy_embedding,
+                        "embedding": job_embedding,
                         "markdown_content": markdown_content,
                         "org_id": state.get("org_id"),
                         "details": details_dict
@@ -172,13 +172,13 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                     await repo.create_job_with_id(**creation_kwargs)
                 
                 # Store all new embeddings
-                # Note: update_job might have replaced the legacy one, but we also want the chunks
+                # Note: update_job might have replaced the full one, but we also want the chunks
                 # For now, let's explicitly add them via the new method.
-                # We should probably clear non-legacy ones if updating.
+                # We should probably clear non-full ones if updating.
                 from sqlalchemy import delete
                 from src.models.db_models import Embedding
                 await db.execute(
-                    delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type != "legacy")
+                    delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type != "full")
                 )
                 await repo.add_embeddings(job_id=job_id, embeddings=embeddings_to_save)
             else:

@@ -1,0 +1,14 @@
+{
+  "name": "Linda Martinez",
+  "email": "linda.martinez.acc@example.com",
+  "phone": "555-0126",
+  "location": "Houston, TX",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "hybrid"
+  ],
+  "open_to_relocation": false
+}

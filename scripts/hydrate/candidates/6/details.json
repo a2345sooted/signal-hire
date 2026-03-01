@@ -1,0 +1,14 @@
+{
+  "name": "Jessica Lee",
+  "email": "jessica.lee.cs@example.com",
+  "phone": "555-0106",
+  "location": "Chicago, IL",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "hybrid"
+  ],
+  "open_to_relocation": false
+}

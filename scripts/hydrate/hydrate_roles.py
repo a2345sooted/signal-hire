@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
 
 def get_access_token():
-    """Reads access_token.txt and returns the token."""
-    token_path = os.path.join(os.path.dirname(__file__), 'access_token.txt')
+    """Reads access_token from scripts/hydrate/access_token."""
+    token_path = os.path.join(os.path.dirname(__file__), 'access_token')
     try:
         with open(token_path, 'r') as f:
             token = f.read().strip()

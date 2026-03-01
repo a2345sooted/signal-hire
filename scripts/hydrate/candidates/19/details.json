@@ -1,0 +1,14 @@
+{
+  "name": "Sophie Nguyen",
+  "email": "sophie.nguyen.ux@example.com",
+  "phone": "555-0119",
+  "location": "Austin, TX",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "remote"
+  ],
+  "open_to_relocation": false
+}

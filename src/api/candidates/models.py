@@ -62,6 +62,7 @@ class CandidateListBrief(BaseModel):
     location: Optional[str] = None
     created_at: Optional[datetime] = None
     attached_jobs: list[JobBrief] = []
+    has_resume: bool = False
 
 class CandidateResponse(BaseModel):
     id: uuid.UUID

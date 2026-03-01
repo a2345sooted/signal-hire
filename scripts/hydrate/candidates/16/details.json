@@ -1,0 +1,14 @@
+{
+  "name": "Kevin Lee",
+  "email": "kevin.lee.sec@example.com",
+  "phone": "555-0116",
+  "location": "Seattle, WA",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "remote"
+  ],
+  "open_to_relocation": true
+}

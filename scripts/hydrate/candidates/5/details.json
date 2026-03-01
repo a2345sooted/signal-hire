@@ -1,0 +1,16 @@
+{
+  "name": "Carlos Rodriguez",
+  "email": "carlos.devops@example.com",
+  "phone": "555-0105",
+  "location": "Denver, CO",
+  "citizenship": "US Citizen",
+  "linkedin_url": "https://linkedin.com/in/carlos-rodriguez-ops",
+  "engagement_types": [
+    "full-time",
+    "contract"
+  ],
+  "work_preference": [
+    "remote"
+  ],
+  "open_to_relocation": true
+}

@@ -1,0 +1,14 @@
+{
+  "name": "Ethan Hunt",
+  "email": "ethan.hunt.support@example.com",
+  "phone": "555-0123",
+  "location": "Salt Lake City, UT",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "remote"
+  ],
+  "open_to_relocation": false
+}

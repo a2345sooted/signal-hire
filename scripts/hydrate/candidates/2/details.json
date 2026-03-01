@@ -1,0 +1,10 @@
+{
+  "name": "Michael Chen",
+  "email": "m.chen.pm@example.com",
+  "phone": "555-4567",
+  "location": "Seattle, WA",
+  "linkedin_url": "linkedin.com/in/mchen-pm",
+  "citizenship": "US Citizen",
+  "work_preference": ["remote"],
+  "engagement_types": ["full-time", "contract"]
+}

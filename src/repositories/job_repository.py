@@ -251,7 +251,7 @@ class JobRepository:
         if embedding:
             emb = Embedding(
                 job_id=job.id,
-                embedding_type="legacy",
+                embedding_type="full",
                 vector=embedding
             )
             self.session.add(emb)
@@ -302,7 +302,7 @@ class JobRepository:
         if embedding:
             emb = Embedding(
                 job_id=job.id,
-                embedding_type="legacy",
+                embedding_type="full",
                 vector=embedding
             )
             self.session.add(emb)
@@ -328,14 +328,14 @@ class JobRepository:
             if hasattr(job, key):
                 setattr(job, key, value)
             elif key == "embedding" and value is not None:
-                # Special handling for legacy embedding
+                # Special handling for full embedding
                 from sqlalchemy import delete
                 await self.session.execute(
-                    delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
+                    delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type == "full")
                 )
                 emb = Embedding(
                     job_id=job_id,
-                    embedding_type="legacy",
+                    embedding_type="full",
                     vector=value
                 )
                 self.session.add(emb)
@@ -496,27 +496,27 @@ class JobRepository:
         from ..models.db_models import Embedding
         emb_result = await self.session.execute(
             select(Embedding)
-            .where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
+            .where(Embedding.job_id == job_id, Embedding.embedding_type == "full")
             .order_by(Embedding.created_at.desc())
             .limit(1)
         )
-        legacy_embedding = emb_result.scalar_one_or_none()
+        job_embedding = emb_result.scalar_one_or_none()
 
-        if legacy_embedding:
+        if job_embedding:
             # Find top 3 similar candidates using vector similarity
             # We exclude candidates that are already attached
             attached_candidate_ids = [uuid.UUID(c["id"]) for c in formatted_attached_candidates]
-            
+
             similar_candidates_query = (
                 select(
                     Candidate,
-                    (1 - Embedding.vector.cosine_distance(legacy_embedding.vector)).label("similarity")
+                    (1 - Embedding.vector.cosine_distance(job_embedding.vector)).label("similarity")
                 )
                 .join(Resume, Candidate.id == Resume.candidate_id)
                 .join(Embedding, Resume.id == Embedding.resume_id)
-                .where(Embedding.embedding_type == "legacy")
+                .where(Embedding.embedding_type == "full")
                 .where(Candidate.id.notin_(attached_candidate_ids))
-                .order_by(Embedding.vector.cosine_distance(legacy_embedding.vector))
+                .order_by(Embedding.vector.cosine_distance(job_embedding.vector))
                 .limit(3)
             )
             similar_candidates_result = await self.session.execute(similar_candidates_query)
@@ -551,7 +551,7 @@ class JobRepository:
             "raw_text": job.raw_text,
             "markdown_content": job.markdown_content,
             "structured_data": job.structured_data,
-            "embedding": legacy_embedding.vector if legacy_embedding else None,
+            "embedding": job_embedding.vector if job_embedding else None,
             "location": job.location,
             "work_arrangement": job.work_arrangement,
             "hybrid_days_per_week": job.hybrid_days_per_week,
@@ -562,6 +562,7 @@ class JobRepository:
             "offers_relocation": job.offers_relocation,
             "details": job.details,
             "created_at": job.created_at.isoformat() if job.created_at else None,
+            "num_candidates": len(formatted_attached_candidates),
             "notes": notes,
             "attached_candidates": formatted_attached_candidates,
             "recommended_candidates": final_recommended_candidates
@@ -580,7 +581,7 @@ class JobRepository:
                 (1 - Embedding.vector.cosine_distance(query_embedding)).label("similarity")
             )
             .join(Embedding, Embedding.job_id == Job.id)
-            .where(Embedding.embedding_type == "legacy")
+            .where(Embedding.embedding_type == "full")
             .order_by(Embedding.vector.cosine_distance(query_embedding))
             .limit(limit)
         )
@@ -595,21 +596,138 @@ class JobRepository:
             for row in rows
         ]
 
-    async def get_all_jobs(self, org_id: Optional[uuid.UUID] = None) -> List[Dict[str, Any]]:
-        """Retrieve all jobs from the database including their resumes and analyses"""
+    async def get_all_jobs(
+        self, 
+        org_id: Optional[uuid.UUID] = None,
+        search_query: Optional[str] = None,
+        pay_type: Optional[str] = None,
+        salary_min: Optional[int] = None,
+        salary_max: Optional[int] = None,
+        hourly_min: Optional[int] = None,
+        hourly_max: Optional[int] = None,
+        employment_types: Optional[List[str]] = None,
+        work_arrangements: Optional[List[str]] = None,
+        offers_relocation: Optional[bool] = None,
+        no_candidates: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve all jobs from the database including their resumes and analyses with filtering and search support"""
         from sqlalchemy.orm import selectinload
+        from sqlalchemy import or_, func, case
+        
+        # Define search rank and vector similarity if search_query is provided
+        search_rank = None
+        similarity_score = None
+        
+        if search_query:
+            # Simple keyword weighting: Title match > Client Name match > Description match
+            search_rank = case(
+                (Job.title.ilike(f"%{search_query}%"), 3),
+                (Job.client_name.ilike(f"%{search_query}%"), 2),
+                (Job.raw_text.ilike(f"%{search_query}%"), 1),
+                else_=0
+            ).label("search_rank")
+
+            # Try to get vector similarity if we have an embedding service and query embedding
+            try:
+                from src.services.embedding import EmbeddingService
+                embedding_service = EmbeddingService()
+                query_embedding = await embedding_service.generate_embedding(search_query)
+                
+                if query_embedding:
+                    # In SQLAlchemy, label names must be unique and we're already using 'similarity' in find_similar_jobs
+                    # but here we are in a different scope. However, let's use a specific name.
+                    similarity_score = (1 - Embedding.vector.cosine_distance(query_embedding)).label("vector_similarity")
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to generate embedding for search: {e}")
+
         query = select(Job).options(
                 selectinload(Job.resumes),
-                selectinload(Job.analyses)
+                selectinload(Job.analyses),
+                selectinload(Job.attached_candidates)
             )
         
+        if search_query:
+            query = query.add_columns(search_rank)
+            if similarity_score is not None:
+                query = query.add_columns(similarity_score)
+                # Important: Use an outer join so jobs without embeddings still appear (keyword matches)
+                query = query.outerjoin(Embedding, (Embedding.job_id == Job.id) & (Embedding.embedding_type == "full"))
+            
+            search_filter = or_(
+                Job.title.ilike(f"%{search_query}%"),
+                Job.raw_text.ilike(f"%{search_query}%"),
+                Job.client_name.ilike(f"%{search_query}%")
+            )
+            
+            # Use OR between keyword search and a threshold of vector similarity if available
+            if similarity_score is not None:
+                # threshold of 0.2 for similarity to be considered "relevant" if keyword doesn't match
+                query = query.where(or_(search_filter, similarity_score > 0.2))
+            else:
+                query = query.where(search_filter)
+            
         if org_id:
             query = query.where(Job.org_id == org_id)
             
+        if pay_type and pay_type != "all":
+            query = query.where(Job.pay_type == pay_type)
+            
+        # Salary range filters - only apply when filtering salary jobs
+        if salary_min is not None and salary_min > 0:
+            query = query.where(Job.pay_range_min >= salary_min)
+        if salary_max is not None and salary_max > 0:
+            query = query.where(Job.pay_range_max <= salary_max)
+
+        # Hourly range filters - only apply when filtering hourly jobs
+        if hourly_min is not None and hourly_min > 0:
+            query = query.where(Job.pay_range_min >= hourly_min)
+        if hourly_max is not None and hourly_max > 0:
+            query = query.where(Job.pay_range_max <= hourly_max)
+            
+        if employment_types:
+            query = query.where(Job.employment_type.in_(employment_types))
+            
+        if work_arrangements:
+            query = query.where(Job.work_arrangement.in_(work_arrangements))
+            
+        if offers_relocation is not None:
+            query = query.where(Job.offers_relocation == offers_relocation)
+            
+        if no_candidates:
+            # Filters for roles with 0 attached candidates
+            from ..models.db_models import JobAttachment
+            subquery = select(JobAttachment.job_id).distinct()
+            query = query.where(~Job.id.in_(subquery))
+            
+        # Define ordering: similarity score (if exists) + search rank, then created_at
+        order_by_clauses = []
+        if search_query:
+            # Prioritize exact keyword matches (Title > Client Name > Description)
+            # then semantic similarity, then recency
+            if similarity_score is not None:
+                # Combined scoring: keyword rank (weighted heavily) + vector similarity
+                # This ensures keyword matches always rank higher than pure semantic matches
+                order_by_clauses.append((search_rank * 100 + similarity_score).desc())
+            else:
+                order_by_clauses.append(search_rank.desc())
+            order_by_clauses.append(Job.created_at.desc())
+        else:
+            order_by_clauses.append(Job.created_at.desc())
+
         result = await self.session.execute(
-            query.order_by(Job.created_at.desc())
+            query.order_by(*order_by_clauses)
         )
-        jobs = result.scalars().all()
+        
+        if search_query:
+            # Extract only the Job objects from the result when search_rank/similarity are also selected
+            rows = result.all()
+            jobs = []
+            for row in rows:
+                job_obj = row.Job
+                jobs.append(job_obj)
+        else:
+            jobs = result.scalars().all()
         return [
             {
                 "id": str(job.id),
@@ -627,6 +745,7 @@ class JobRepository:
                 "employment_type": job.employment_type,
                 "offers_relocation": job.offers_relocation,
                 "created_at": job.created_at.isoformat() if job.created_at else None,
+                "num_candidates": len(job.attached_candidates),
                 "resumes": [
                     {
                         "id": str(resume.id),

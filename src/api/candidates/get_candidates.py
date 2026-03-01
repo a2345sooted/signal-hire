@@ -1,5 +1,6 @@
-from typing import Annotated
-from fastapi import Depends, Request, Header, HTTPException
+import logging
+from typing import Annotated, Optional
+from fastapi import Depends, Request, Header, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -8,13 +9,18 @@ from src.repositories.organization_repository import OrganizationRepository
 
 from src.api.candidates.models import CandidateListBrief
 
+logger = logging.getLogger(__name__)
+
 async def get_candidates(
     request: Request,
     x_org_slug: Annotated[str, Header()],
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(None),
+    has_resume: Optional[bool] = Query(None),
+    no_roles: Optional[bool] = Query(None)
 ):
     """
-    Get all candidates for an organization.
+    Get all candidates for an organization with filtering.
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
@@ -31,12 +37,20 @@ async def get_candidates(
     if not role:
         raise HTTPException(status_code=403, detail="User does not have access to this organization")
 
+    logger.info(f"Fetching candidates for org: {org.name} ({org.id}) with filters: q={q}, "
+                f"has_resume={has_resume}, no_roles={no_roles}")
+
     candidate_repo = CandidateRepository(db)
-    candidates_data = await candidate_repo.get_candidates(org.id)
-    
+    candidates_data = await candidate_repo.get_candidates(
+        org_id=org.id,
+        search_query=q,
+        has_resume=has_resume,
+        no_roles=no_roles
+    )
+
     # Validate with Pydantic model
     candidates = [CandidateListBrief.model_validate(c) for c in candidates_data]
-    
+
     return {
         "success": True,
         "candidates": candidates

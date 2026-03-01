@@ -1,0 +1,14 @@
+{
+  "name": "Chris Taylor",
+  "email": "chris.taylor.sales@example.com",
+  "phone": "555-0121",
+  "location": "Dallas, TX",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "hybrid"
+  ],
+  "open_to_relocation": true
+}

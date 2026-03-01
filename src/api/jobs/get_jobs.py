@@ -1,6 +1,6 @@
 import logging
-from typing import Annotated
-from fastapi import Depends, Request, HTTPException, Header
+from typing import Annotated, List, Optional
+from fastapi import Depends, Request, HTTPException, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -12,10 +12,20 @@ logger = logging.getLogger(__name__)
 async def get_jobs(
     request: Request,
     x_org_slug: Annotated[str, Header()],
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(None),
+    pay_type: Optional[str] = Query(None),
+    salary_min: Optional[int] = Query(None),
+    salary_max: Optional[int] = Query(None),
+    hourly_min: Optional[int] = Query(None),
+    hourly_max: Optional[int] = Query(None),
+    employment_type: Optional[List[str]] = Query(None),
+    work_arrangement: Optional[List[str]] = Query(None),
+    offers_relocation: Optional[bool] = Query(None),
+    no_candidates: Optional[bool] = Query(None)
 ):
     """
-    Retrieve all jobs for the specified organization.
+    Retrieve all jobs for the specified organization with filtering.
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
@@ -30,9 +40,24 @@ async def get_jobs(
     if not role:
         raise HTTPException(status_code=403, detail="User does not belong to this organization")
 
-    logger.info(f"Fetching all jobs for org: {org.name} ({org.id})")
+    logger.info(f"Fetching jobs for org: {org.name} ({org.id}) with filters: q={q}, pay_type={pay_type}, "
+                f"salary_min={salary_min}, salary_max={salary_max}, hourly_min={hourly_min}, hourly_max={hourly_max}, "
+                f"employment_type={employment_type}, work_arrangement={work_arrangement}, "
+                f"offers_relocation={offers_relocation}, no_candidates={no_candidates}")
     repo = JobRepository(db)
-    jobs = await repo.get_all_jobs(org_id=org.id)
+    jobs = await repo.get_all_jobs(
+        org_id=org.id,
+        search_query=q,
+        pay_type=pay_type,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        hourly_min=hourly_min,
+        hourly_max=hourly_max,
+        employment_types=employment_type,
+        work_arrangements=work_arrangement,
+        offers_relocation=offers_relocation,
+        no_candidates=no_candidates
+    )
     
     if jobs is None:
         logger.warning("JobRepository.get_all_jobs() returned None!")
@@ -112,7 +137,7 @@ async def get_jobs(
             "created_at": job.get("created_at"),
             "resumes": resumes,
             "resume_count": len(resumes),
-            "num_candidates": len(resumes), # Stubbed but using actual count
+            "num_candidates": job.get("num_candidates", 0),
             "tags": ["Engineering", "Urgent"], # Stubbed
             "attached_candidates": top_candidates,
             "status": "open", # "open" or "closed"

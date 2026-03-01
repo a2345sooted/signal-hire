@@ -1,0 +1,15 @@
+{
+  "name": "Alex Chen",
+  "email": "alex.chen.design@example.com",
+  "phone": "555-0109",
+  "location": "Los Angeles, CA",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time",
+    "contract"
+  ],
+  "work_preference": [
+    "remote"
+  ],
+  "open_to_relocation": false
+}

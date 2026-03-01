@@ -1,0 +1,10 @@
+{
+  "name": "Sarah Jenkins",
+  "email": "sarah.jenkins.dev@example.com",
+  "phone": "555-0123",
+  "location": "Austin, TX",
+  "linkedin_url": "linkedin.com/in/sjenkins-dev",
+  "citizenship": "US Citizen",
+  "work_preference": ["hybrid"],
+  "engagement_types": ["full-time"]
+}

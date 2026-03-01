@@ -221,7 +221,7 @@ class CandidateRepository:
                         (1 - Embedding.vector.cosine_distance(resume_embedding.vector)).label("similarity")
                     )
                     .join(Embedding, Embedding.job_id == Job.id)
-                    .where(Embedding.embedding_type == "legacy")
+                    .where(Embedding.embedding_type == "full")
                     .where(Job.id.notin_(attached_job_ids))
                     .order_by(Embedding.vector.cosine_distance(resume_embedding.vector))
                     .limit(3)
@@ -292,16 +292,141 @@ class CandidateRepository:
             "created_at": resume.created_at.isoformat() if resume.created_at else None
         }
 
-    async def get_candidates(self, org_id: uuid.UUID) -> list[Dict[str, Any]]:
-        """Retrieve all candidates for an organization with their attached jobs and latest scores"""
-        from ..models.db_models import Job, JobAttachment, Analysis
-        
-        # 1. Fetch basic candidate info
-        result = await self.session.execute(
-            select(Candidate).where(Candidate.org_id == org_id).order_by(Candidate.created_at.desc())
-        )
-        candidates = result.scalars().all()
-        
+    async def get_candidates(
+        self,
+        org_id: uuid.UUID,
+        search_query: Optional[str] = None,
+        has_resume: Optional[bool] = None,
+        no_roles: Optional[bool] = None
+    ) -> list[Dict[str, Any]]:
+        """Retrieve all candidates for an organization with their attached jobs and latest scores, with filtering and search support"""
+        from ..models.db_models import Job, JobAttachment, Analysis, Resume, Embedding
+        from sqlalchemy import or_, exists, and_, case
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Define search rank and vector similarity if search_query is provided
+        search_rank = None
+        query_embedding = None
+        max_similarity_subq = None
+
+        if search_query:
+            # Simple keyword weighting: Name match > Email match > Location match > Job title match
+            search_rank = case(
+                (Candidate.name.ilike(f"%{search_query}%"), 4),
+                (Candidate.email.ilike(f"%{search_query}%"), 3),
+                (Candidate.location.ilike(f"%{search_query}%"), 2),
+                else_=0
+            ).label("search_rank")
+
+            # Try to get vector similarity for resume content search
+            try:
+                from src.services.embedding import EmbeddingService
+                embedding_service = EmbeddingService()
+                query_embedding = await embedding_service.generate_embedding(search_query)
+            except Exception as e:
+                logger.warning(f"Failed to generate embedding for candidate search: {e}")
+
+        # 1. Build query with filters
+        query = select(Candidate).where(Candidate.org_id == org_id)
+
+        # Search filter - keyword search + semantic search on resumes
+        if search_query:
+            query = query.add_columns(search_rank)
+
+            # For attached job titles, we need to join
+            job_title_subquery = (
+                select(JobAttachment.candidate_id)
+                .join(Job, Job.id == JobAttachment.job_id)
+                .where(Job.title.ilike(f"%{search_query}%"))
+            )
+
+            keyword_search_filter = or_(
+                Candidate.name.ilike(f"%{search_query}%"),
+                Candidate.email.ilike(f"%{search_query}%"),
+                Candidate.location.ilike(f"%{search_query}%"),
+                Candidate.id.in_(job_title_subquery)
+            )
+
+            if query_embedding is not None:
+                # Subquery to get max similarity per candidate
+                from sqlalchemy import func
+                max_similarity_subq = (
+                    select(
+                        Resume.candidate_id,
+                        func.max(1 - Embedding.vector.cosine_distance(query_embedding)).label("max_similarity")
+                    )
+                    .join(Embedding, (Embedding.resume_id == Resume.id) & (Embedding.embedding_type == "full"))
+                    .where(Resume.is_optimized == False)
+                    .group_by(Resume.candidate_id)
+                    .subquery()
+                )
+
+                # Add the max_similarity as a column
+                query = query.outerjoin(
+                    max_similarity_subq,
+                    Candidate.id == max_similarity_subq.c.candidate_id
+                )
+                query = query.add_columns(max_similarity_subq.c.max_similarity)
+
+                # Use OR between keyword search and vector similarity threshold
+                query = query.where(or_(keyword_search_filter, max_similarity_subq.c.max_similarity > 0.2))
+            else:
+                query = query.where(keyword_search_filter)
+
+        # Has resume filter
+        if has_resume is not None:
+            if has_resume:
+                # Only candidates with at least one resume
+                resume_exists = exists().where(
+                    and_(
+                        Resume.candidate_id == Candidate.id,
+                        Resume.is_optimized == False  # Only count original resumes
+                    )
+                )
+                query = query.where(resume_exists)
+            else:
+                # Only candidates with no resumes
+                resume_exists = exists().where(
+                    and_(
+                        Resume.candidate_id == Candidate.id,
+                        Resume.is_optimized == False
+                    )
+                )
+                query = query.where(~resume_exists)
+
+        # No roles filter - only candidates with 0 attached jobs
+        if no_roles:
+            attachment_exists = exists().where(JobAttachment.candidate_id == Candidate.id)
+            query = query.where(~attachment_exists)
+
+        # Define ordering: similarity score (if exists) + search rank, then created_at
+        order_by_clauses = []
+        if search_query:
+            if max_similarity_subq is not None:
+                # Reference the column from the subquery directly
+                from sqlalchemy import func
+                # Combined scoring: keyword rank (weighted heavily) + vector similarity
+                # This ensures keyword matches always rank higher than pure semantic matches
+                order_by_clauses.append((search_rank * 100 + func.coalesce(max_similarity_subq.c.max_similarity, 0)).desc())
+            else:
+                order_by_clauses.append(search_rank.desc())
+            order_by_clauses.append(Candidate.created_at.desc())
+        else:
+            order_by_clauses.append(Candidate.created_at.desc())
+
+        # Execute query
+        result = await self.session.execute(query.order_by(*order_by_clauses))
+
+        # Extract candidates from result
+        if search_query:
+            # When search columns are added, we need to extract just the Candidate objects
+            rows = result.all()
+            candidates = [row.Candidate if hasattr(row, 'Candidate') else row[0] for row in rows]
+        else:
+            candidates = result.scalars().all()
+
         formatted_candidates = []
         for candidate in candidates:
             # 2. Get attached jobs and their latest analysis score
@@ -318,7 +443,7 @@ class CandidateRepository:
             for row in attached_rows:
                 job = row.Job
                 attached_resume_id = row.resume_id
-                
+
                 # Use common status logic
                 status_data = await self._get_analysis_status_for_attachment(
                     candidate_id=candidate.id,
@@ -336,7 +461,17 @@ class CandidateRepository:
                     "is_analysis_processing": status_data["is_analysis_processing"],
                     "attached_resume_id": str(attached_resume_id) if attached_resume_id else None
                 })
-            
+
+            # Check if candidate has at least one original (non-optimized) resume
+            resume_check_query = (
+                select(Resume.id)
+                .where(Resume.candidate_id == candidate.id)
+                .where(Resume.is_optimized == False)
+                .limit(1)
+            )
+            resume_check_result = await self.session.execute(resume_check_query)
+            has_resume = resume_check_result.scalar_one_or_none() is not None
+
             formatted_candidates.append({
                 "id": str(candidate.id),
                 "name": candidate.name,
@@ -344,7 +479,8 @@ class CandidateRepository:
                 "phone": candidate.phone,
                 "location": candidate.location,
                 "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
-                "attached_jobs": attached_jobs
+                "attached_jobs": attached_jobs,
+                "has_resume": has_resume
             })
             
         return formatted_candidates

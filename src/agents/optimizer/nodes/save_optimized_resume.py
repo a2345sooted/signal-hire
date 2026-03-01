@@ -11,12 +11,12 @@ from ....repositories.processing_task_repository import ProcessingTaskRepository
 from ....agents.analyzer.run import run_analyzer_agent
 from ....agents.utils import strip_id_prefix, get_thread_id, generate_thread_id, get_task_id
 from ....services.embedding import EmbeddingService
-from ....services.pdf import PDFGenerator
+from ....services.docx import DOCXGenerator
 from ....services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 embedding_service = EmbeddingService()
-pdf_generator = PDFGenerator()
+docx_generator = DOCXGenerator()
 
 async def save_optimized_resume_node(state: OptimizerState, config: RunnableConfig = None):
     """
@@ -51,10 +51,10 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
     # Generate embeddings for the new resume
     logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Generating embeddings for optimized resume...")
     prepared_text = json.dumps(structured_data, indent=2)
-    legacy_embedding = await embedding_service.generate_embedding(prepared_text)
+    resume_embedding = await embedding_service.generate_embedding(prepared_text)
     
-    # We might want to generate chunks too, but for optimized resumes, legacy might be enough for now.
-    # Actually, let's stick to the standard: legacy + chunks.
+    # We might want to generate chunks too, but for optimized resumes, full might be enough for now.
+    # Actually, let's stick to the standard: full + chunks.
     # We don't have 'raw_text' for the optimized resume yet, it's just structured.
     # We'll use the JSON representation as raw_text for now or generate a markdown version.
     # For now, let's just use JSON as raw_text.
@@ -79,28 +79,28 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
             new_resume_id = uuid.uuid4()
             # Create a unique filename for the optimized resume
             original_resume_data = state.get("resume_data", {})
-            original_filename = original_resume_data.get("filename") or "resume.pdf"
+            original_filename = original_resume_data.get("filename") or "resume.docx"
             base_name = original_filename.rsplit(".", 1)[0]
-            ext = "pdf" # We'll eventually generate a PDF for it
+            ext = "docx" 
             optimized_filename = f"{base_name}_signal.{ext}"
             unique_filename = await repo.get_unique_filename(optimized_filename)
 
             # Follow new simplified convention for optimized resumes: candidates/:candidateId/resumes/optimized/:filename
             storage_key = f"candidates/{candidate_id}/resumes/optimized/{unique_filename}"
             
-            # Generate PDF from structured data
-            logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Generating PDF for optimized resume...")
+            # Generate DOCX from structured data
+            logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Generating DOCX for optimized resume...")
             try:
-                pdf_bytes = pdf_generator.generate_pdf(structured_data)
-                # Upload PDF to storage
+                docx_bytes = docx_generator.generate_docx(structured_data)
+                # Upload DOCX to storage
                 await storage_service.upload_file_data_with_key(
-                    file_data=pdf_bytes,
+                    file_data=docx_bytes,
                     storage_key=storage_key,
-                    content_type="application/pdf"
+                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 )
-                logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Optimized PDF uploaded to {storage_key}")
-            except Exception as pdf_error:
-                logger.error(f"[OPTIMIZER_AGENT] [{clean_id_str}] Failed to generate or upload PDF: {str(pdf_error)}")
+                logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Optimized DOCX uploaded to {storage_key}")
+            except Exception as docx_error:
+                logger.error(f"[OPTIMIZER_AGENT] [{clean_id_str}] Failed to generate or upload DOCX: {str(docx_error)}")
                 # We still continue saving the record even if PDF fails, 
                 # though it's better if it succeeds.
             
@@ -109,7 +109,7 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
                 original_filename=unique_filename,
                 raw_text=raw_text,
                 structured_data=structured_data,
-                embedding=legacy_embedding,
+                embedding=resume_embedding,
                 storage_key=storage_key,
                 job_id=uuid.UUID(job_id),
                 candidate_id=uuid.UUID(candidate_id),
@@ -123,7 +123,7 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
             from sqlalchemy import delete
             from src.models.db_models import Embedding
             await db.execute(
-                delete(Embedding).where(Embedding.resume_id == new_resume_id, Embedding.embedding_type != "legacy")
+                delete(Embedding).where(Embedding.resume_id == new_resume_id, Embedding.embedding_type != "full")
             )
             await repo.add_embeddings(resume_id=new_resume_id, candidate_id=uuid.UUID(candidate_id), embeddings=embeddings_to_save)
             

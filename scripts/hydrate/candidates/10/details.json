@@ -1,0 +1,14 @@
+{
+  "name": "Lisa Johnson",
+  "email": "lisa.johnson.ops@example.com",
+  "phone": "555-0110",
+  "location": "Atlanta, GA",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "in-office"
+  ],
+  "open_to_relocation": false
+}

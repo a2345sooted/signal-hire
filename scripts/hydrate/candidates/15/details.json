@@ -1,0 +1,14 @@
+{
+  "name": "Michelle Davis",
+  "email": "michelle.davis.mktg@example.com",
+  "phone": "555-0115",
+  "location": "Austin, TX",
+  "citizenship": "US Citizen",
+  "engagement_types": [
+    "full-time"
+  ],
+  "work_preference": [
+    "remote"
+  ],
+  "open_to_relocation": true
+}

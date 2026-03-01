@@ -10,13 +10,13 @@ from ....constants import TASK_ANALYSIS, TASK_RESUME
 from ....database import AsyncSessionLocal
 from ....repositories.resume_repository import ResumeRepository
 from ....services.embedding import EmbeddingService
-from ....services.pdf import PDFGenerator
+from ....services.docx import DOCXGenerator
 from ....services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 
 embedding_service = EmbeddingService()
-pdf_generator = PDFGenerator()
+docx_generator = DOCXGenerator()
 
 from ....agents.utils import strip_id_prefix, get_thread_id
 
@@ -65,22 +65,27 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to move original resume: {str(e)}")
             # Fallback to current storage_key if move fails
 
-    if original_filename.lower().endswith(".docx"):
+    # If original is PDF, we still might want to generate a DOCX (as requested: "resumes you generate should be docx")
+    # Actually, the requirement says "resumes you generate should be docx".
+    # This node is for SAVING the resume. If it's a docx upload, it was generating a PDF.
+    # If the user wants generated resumes to be docx, we should probably change this logic.
+    
+    if original_filename.lower().endswith(".pdf"):
         try:
-            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] DOCX detected. Generating PDF version from structured data...")
-            pdf_bytes = pdf_generator.generate_pdf(structured_data)
-            pdf_filename = original_filename.rsplit(".", 1)[0] + ".pdf"
+            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] PDF detected. Generating DOCX version from structured data...")
+            docx_bytes = docx_generator.generate_docx(structured_data)
+            docx_filename = original_filename.rsplit(".", 1)[0] + ".docx"
             
             # Store in the candidate-based folder
             storage_key = await storage_service.upload_file_data(
-                pdf_bytes, 
-                pdf_filename, 
-                content_type="application/pdf",
+                docx_bytes, 
+                docx_filename, 
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 dir_id=new_dir_id
             )
-            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] PDF version generated and stored: {storage_key}")
+            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] DOCX version generated and stored: {storage_key}")
         except Exception as e:
-            logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to generate/store PDF for DOCX: {str(e)}")
+            logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to generate/store DOCX for PDF: {str(e)}")
 
     # Validate required fields
     contact = structured_data.get("contact", {})
@@ -89,8 +94,8 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
 
     # Generate embeddings
     try:
-        # 1. Generate legacy embedding for the resume summary
-        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Generating legacy embedding for resume summary...")
+        # 1. Generate full embedding for the resume summary
+        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Generating full embedding for resume summary...")
         
         # We'll need DB access to get candidate info if it exists
         candidate_id = state.get("candidate_id")
@@ -109,7 +114,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             candidate_data=candidate_data, 
             notes=candidate_notes
         )
-        legacy_embedding = await embedding_service.generate_embedding(prepared_text)
+        resume_embedding = await embedding_service.generate_embedding(prepared_text)
         logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Legacy embedding generated successfully.")
 
         # 2. Generate chunked embeddings for full text
@@ -118,7 +123,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
         chunks = embedding_service.chunk_text(full_text)
         chunk_embeddings = await embedding_service.generate_embeddings(chunks)
         
-        # NOTE: We ONLY include chunks here because 'legacy' is handled by update_resume/create_resume methods
+        # NOTE: We ONLY include chunks here because 'full' is handled by update_resume/create_resume methods
         embeddings_to_save = []
         for i, (chunk, vector) in enumerate(zip(chunks, chunk_embeddings)):
             embeddings_to_save.append({
@@ -228,7 +233,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                     resume_id=existing_resume_id,
                     raw_text=raw_text,
                     structured_data=structured_data,
-                    embedding=legacy_embedding,
+                    embedding=resume_embedding,
                     storage_key=storage_key,
                     job_id=state.get("job_id"),
                     candidate_id=candidate_id
@@ -253,7 +258,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                         resume_id=existing_original.id,
                         raw_text=raw_text,
                         structured_data=structured_data,
-                        embedding=legacy_embedding,
+                        embedding=resume_embedding,
                         storage_key=storage_key, # Use the new storage key
                         job_id=state.get("job_id"),
                         candidate_id=candidate_id
@@ -275,7 +280,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                         original_filename=unique_filename,
                         raw_text=raw_text,
                         structured_data=structured_data,
-                        embedding=legacy_embedding,
+                        embedding=resume_embedding,
                         storage_key=storage_key,
                         job_id=state.get("job_id"),
                         candidate_id=candidate_id
@@ -285,7 +290,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             from sqlalchemy import delete
             from src.models.db_models import Embedding, ProcessingTask
             await db.execute(
-                delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type != "legacy")
+                delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type != "full")
             )
             await repo.add_embeddings(resume_id=resume_id, candidate_id=candidate_id, embeddings=embeddings_to_save)
             
