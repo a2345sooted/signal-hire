@@ -1,5 +1,7 @@
 import logging
 import uuid
+import hashlib
+import json
 
 from langchain_core.runnables import RunnableConfig
 
@@ -16,10 +18,18 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
     candidate_id = state.get("candidate_id")
     job_id = state.get("job_id")
     resume_id = state.get("resume_id")
+    job_data = state.get("job_data", {})
     
     if not candidate_id or not job_id:
         logger.error("[ANALYZER_AGENT] Missing candidate_id or job_id for saving analysis")
         return state
+
+    # Calculate hashes for JD and Details
+    raw_jd = job_data.get("raw_text", "")
+    details = job_data.get("details", {})
+    
+    jd_hash = hashlib.sha256(raw_jd.encode()).hexdigest() if raw_jd else None
+    details_hash = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest() if details else None
 
     content = {
         "score": state.get("score"),
@@ -48,7 +58,9 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
                 await repo.update_analysis(
                     analysis_id=uuid.UUID(existing['id']),
                     content=content,
-                    resume_id=uuid.UUID(resume_id) if resume_id else None
+                    resume_id=uuid.UUID(resume_id) if resume_id else None,
+                    jd_hash=jd_hash,
+                    details_hash=details_hash
                 )
                 analysis_id = existing['id']
             else:
@@ -57,7 +69,9 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
                     candidate_id=uuid.UUID(candidate_id),
                     job_id=uuid.UUID(job_id),
                     content=content,
-                    resume_id=uuid.UUID(resume_id) if resume_id else None
+                    resume_id=uuid.UUID(resume_id) if resume_id else None,
+                    jd_hash=jd_hash,
+                    details_hash=details_hash
                 )
             
             await db.commit()

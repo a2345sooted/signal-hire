@@ -60,16 +60,17 @@ async def get_resumes(
         status = "ready"
         if not r.structured_data:
             status = "processing"
-        elif is_resume_processing_active(resume_id=r.id):
+        elif await is_resume_processing_active(resume_id=r.id):
             status = "processing"
             
         formatted_resumes.append({
             "id": str(r.id),
             "filename": r.original_filename,
             "created_at": r.created_at.isoformat() if r.created_at else None,
-            "is_current": getattr(r, "is_current", False),
             "status": status,
-            "signed_url": signed_url
+            "signed_url": signed_url,
+            "is_optimized": r.is_optimized,
+            "job_id": str(r.job_id) if r.job_id else None
         })
         
     return {

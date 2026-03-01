@@ -8,6 +8,9 @@ from ...agents.utils import generate_thread_id
 from ...constants import TASK_RESUME, CONFIG_THREAD_ID_KEY
 from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, cancel_agent_task
 
+from ...database import AsyncSessionLocal
+from ...repositories.processing_task_repository import ProcessingTaskRepository
+
 logger = logging.getLogger(__name__)
 
 # Track active resume processing tasks
@@ -89,41 +92,15 @@ async def run_resume_agent(
         if _active_resume_tasks.get(thread_id) == task:
             del _active_resume_tasks[thread_id]
 
-async def cancel_resume_agent(job_id: uuid.UUID):
+async def cancel_resume_agent(job_id: Optional[uuid.UUID] = None, resume_id: Optional[uuid.UUID] = None):
     """Cancels a running resume agent task."""
-    thread_id = generate_thread_id("resume", job_id)
+    thread_id = generate_thread_id("resume", job_id, str(resume_id) if resume_id else None)
     return await cancel_agent_task(thread_id, _active_resume_tasks, "RESUME_PROCESSOR_RUN")
 
 
-def is_resume_processing_active(job_id: Optional[uuid.UUID] = None, resume_id: Optional[uuid.UUID] = None, candidate_id: Optional[uuid.UUID] = None) -> bool:
+async def is_resume_processing_active(job_id: Optional[uuid.UUID] = None, resume_id: Optional[uuid.UUID] = None, candidate_id: Optional[uuid.UUID] = None) -> bool:
     """Check if a resume processing task is currently active."""
-    # Try with resume_id if provided
-    if resume_id:
-        # We try both with and without job_id because it depends on how it was started
-        thread_id_with_job = generate_thread_id("resume", job_id, str(resume_id))
-        if thread_id_with_job in _active_resume_tasks:
-            return True
-        
-        thread_id_no_job = generate_thread_id("resume", None, str(resume_id))
-        if thread_id_no_job in _active_resume_tasks:
-            return True
-    
-    # Try with candidate_id if provided (searching through all active tasks)
-    if candidate_id:
-        candidate_id_str = str(candidate_id)
-        # Also try direct thread ID if it was started with candidate_id as thread_id_id
-        thread_id_with_job = generate_thread_id("resume", job_id, candidate_id_str)
-        if thread_id_with_job in _active_resume_tasks:
-            return True
-            
-        thread_id_no_job = generate_thread_id("resume", None, candidate_id_str)
-        if thread_id_no_job in _active_resume_tasks:
-            return True
-
-    # Fallback to just job_id if that's all we have
-    if not resume_id and not candidate_id and job_id:
-        thread_id = generate_thread_id("resume", job_id)
-        return thread_id in _active_resume_tasks
-        
-    return False
+    async with AsyncSessionLocal() as db:
+        repo = ProcessingTaskRepository(db)
+        return await repo.is_task_active(task_type="resume", job_id=job_id, candidate_id=candidate_id, resume_id=resume_id)
 

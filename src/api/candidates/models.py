@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr
 
 class CandidateCreate(BaseModel):
     name: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     phone: Optional[str] = None
     location: Optional[str] = None
     citizenship: Optional[str] = None
@@ -45,11 +45,12 @@ class JobBrief(BaseModel):
     analysis_status: Optional[str] = "pending"
     analysis_score: Optional[int] = None
     is_analysis_processing: bool = False
+    attached_resume_id: Optional[uuid.UUID] = None
 
 class CandidateResponse(BaseModel):
     id: uuid.UUID
     name: str
-    email: str
+    email: Optional[str] = None
     phone: Optional[str] = None
     location: Optional[str] = None
     citizenship: Optional[str] = None
@@ -58,7 +59,8 @@ class CandidateResponse(BaseModel):
     work_preference: list[str] = []
     open_to_relocation: bool = False
     created_at: Optional[datetime] = None
-    current_resume_structured_data: Optional[dict] = None
+    latest_resume_structured_data: Optional[dict] = None
+    is_resume_processing: bool = False
     attached_jobs: list[JobBrief] = []
     recommended_jobs: list[JobBrief] = []
     notes: list[NoteResponse] = []

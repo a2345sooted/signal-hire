@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 async def create_job(
     request: Request,
     body: JobCreate,
-    x_org_slug: Annotated[str, Header()],
+    x_org_slug: Annotated[str, Header(alias="X-Org-Slug")],
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
@@ -63,7 +63,26 @@ async def create_job(
     
     # If raw_text was provided, trigger the JD agent asynchronously
     if body.raw_text:
-        logger.info(f"Job created with raw_text for {job_id}. Triggering JD agent asynchronously.")
+        logger.info(f"Job created with raw_text for {job_id}. Clearing old content placeholders, registering task and triggering JD agent asynchronously.")
+        
+        # Clear any placeholders to ensure consistency
+        await repo.update_job(
+            job_id=job_id,
+            markdown_content=None,
+            structured_data=None
+        )
+        
+        # Pre-register the task in the database so that immediate GET requests see SIGNAL_PROCESSING
+        from src.repositories.processing_task_repository import ProcessingTaskRepository
+        task_repo = ProcessingTaskRepository(db)
+        await task_repo.create_task(
+            task_id=job_id, # For JD tasks, task_id is the job_id
+            task_type="jd",
+            job_id=job_id,
+            status="starting"
+        )
+        await db.commit()
+
         background_tasks.add_task(
             run_jd_agent, 
             raw_text=body.raw_text, 

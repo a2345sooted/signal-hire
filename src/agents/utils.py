@@ -39,7 +39,20 @@ def strip_id_prefix(thread_id: str) -> str:
         return thread_id[7:]
     elif thread_id.startswith("analysis_"):
         return thread_id[9:]
+    elif thread_id.startswith("optimizer_"):
+        return thread_id[10:]
     return thread_id
+
+def extract_uuid_from_thread_id(thread_id: str) -> Optional[uuid.UUID]:
+    """Attempts to extract the last UUID-like part of a thread ID."""
+    clean_id = strip_id_prefix(thread_id)
+    parts = clean_id.split("_")
+    for part in reversed(parts):
+        try:
+            return uuid.UUID(part)
+        except ValueError:
+            continue
+    return None
 
 def get_checkpoint_config(thread_id: str):
     return {

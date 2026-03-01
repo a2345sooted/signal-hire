@@ -15,7 +15,7 @@ async def save_jd(
     request: Request,
     job_description: Annotated[str, Form(...)],
     background_tasks: BackgroundTasks,
-    x_org_slug: Annotated[str, Header()],
+    x_org_slug: Annotated[str, Header(alias="X-Org-Slug")],
     db: AsyncSession = Depends(get_db)
 ):
     """

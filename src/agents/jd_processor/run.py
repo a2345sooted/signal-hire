@@ -7,6 +7,9 @@ from ...agents.registry import get_jd_agent
 from ...agents.utils import generate_thread_id
 from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, cancel_agent_task
 
+from ...database import AsyncSessionLocal
+from ...repositories.processing_task_repository import ProcessingTaskRepository
+
 logger = logging.getLogger(__name__)
 
 # Track active JD processing tasks
@@ -71,8 +74,9 @@ async def cancel_jd_agent(job_id: uuid.UUID):
     return await cancel_agent_task(thread_id, _active_jd_tasks, "JD_PROCESSOR_RUN")
 
 
-def is_jd_processing_active(job_id: uuid.UUID) -> bool:
+async def is_jd_processing_active(job_id: uuid.UUID) -> bool:
     """Check if a JD processing task is currently active for a given job_id."""
-    thread_id = generate_thread_id("jd", job_id)
-    return thread_id in _active_jd_tasks
+    async with AsyncSessionLocal() as db:
+        repo = ProcessingTaskRepository(db)
+        return await repo.is_task_active(task_type="jd", job_id=job_id)
 

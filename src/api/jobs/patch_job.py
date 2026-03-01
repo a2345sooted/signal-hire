@@ -64,7 +64,26 @@ async def patch_job(
         # If raw_text was updated and is different, trigger the JD agent
         new_raw_text = update_data.get("raw_text")
         if new_raw_text and new_raw_text != job.get("raw_text"):
-            logger.info(f"Job raw_text updated for {job_id}. Triggering JD agent asynchronously.")
+            logger.info(f"Job raw_text updated for {job_id}. Clearing old content, registering task and triggering JD agent asynchronously.")
+        
+            # Clear old markdown_content and structured_data since raw_text changed
+            await repo.update_job(
+                job_id=job_id,
+                markdown_content=None,
+                structured_data=None
+            )
+        
+            # Pre-register the task in the database so that immediate GET requests see SIGNAL_PROCESSING
+            from src.repositories.processing_task_repository import ProcessingTaskRepository
+            task_repo = ProcessingTaskRepository(db)
+            await task_repo.create_task(
+                task_id=job_id, # For JD tasks, task_id is the job_id
+                task_type="jd",
+                job_id=job_id,
+                status="starting"
+            )
+            await db.commit()
+
             background_tasks.add_task(
                 run_jd_agent, 
                 raw_text=new_raw_text, 

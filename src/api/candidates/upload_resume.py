@@ -21,7 +21,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 async def upload_resume(
     request: Request,
     candidate_id: uuid.UUID,
-    x_org_slug: Annotated[str, Header()],
+    x_org_slug: Annotated[str, Header(alias="X-Org-Slug")],
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_db)
@@ -72,62 +72,93 @@ async def upload_resume(
 
     # Record in resumes table
     resume_repo = ResumeRepository(db)
-    existing_resumes = await resume_repo.get_resumes_by_candidate_id(candidate_id)
-    for res in existing_resumes:
-        if res.original_filename == file.filename:
-            logger.warning(f"Duplicate resume upload attempt for candidate {candidate_id}: {file.filename}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"A resume with the filename '{file.filename}' already exists for this candidate."
-            )
-
+    existing_original = await resume_repo.get_original_resume_by_candidate_id(candidate_id)
+    
     # 0. Extract text and check for exact content duplicates
     file_data = await file.read()
     raw_text = await extract_text_from_bytes(file_data, file.filename)
     
     if raw_text:
         text_hash = hashlib.sha256(raw_text.encode()).hexdigest()
-        existing_resume = await resume_repo.get_resume_by_hash(text_hash)
         
-        if existing_resume:
-            matching_filename = existing_resume.get("original_filename") or "an existing resume"
+        # Check if it matches the current original resume exactly
+        if existing_original and existing_original.raw_text_hash == text_hash:
+             logger.warning(f"Exact same resume content uploaded for candidate {candidate_id}")
+             raise HTTPException(
+                status_code=409, 
+                detail=f"This resume exactly matches the one already on file for this candidate."
+            )
+        
+        # Check against ALL resumes in system (optional, but keep for now as per previous logic)
+        existing_any = await resume_repo.get_resume_by_hash(text_hash)
+        if existing_any and str(existing_any.get("candidate_id")) != str(candidate_id):
+            matching_filename = existing_any.get("original_filename") or "an existing resume"
             logger.warning(f"Duplicate content detected for candidate {candidate_id}. Matches: {matching_filename}")
             raise HTTPException(
                 status_code=409, 
                 detail=f"This resume exactly matches another resume already in the system: {matching_filename}"
             )
+    
+    # If we have an existing original resume, we will delete it (and its storage) 
+    # and replace it with the new one.
+    if existing_original:
+        logger.info(f"Overwriting existing resume {existing_original.id} for candidate {candidate_id}")
+        # Delete from storage
+        if existing_original.storage_key:
+            try:
+                await storage_service.delete_file(existing_original.storage_key)
+            except:
+                logger.warning(f"Failed to delete old resume storage: {existing_original.storage_key}")
+        
+        # Cancel any active tasks for old resume
+        from src.agents.resume_processor.run import cancel_resume_agent
+        await cancel_resume_agent(resume_id=existing_original.id)
+        
+        # Delete from DB
+        await resume_repo.delete_resume(existing_original.id)
+        await db.flush()
 
     # 1. Create a skeleton record
     unique_filename = await resume_repo.get_unique_filename(file.filename)
 
-    resume_id = await resume_repo.create_resume(
+    # Follow new convention for non-optimized resumes: candidates/:candidateId/resumes/:resumeId
+    # We pre-generate resume_id to use it in the storage key
+    resume_id = uuid.uuid4()
+    storage_key = f"candidates/{candidate_id}/resumes/{resume_id}"
+
+    await resume_repo.create_resume_with_id(
+        resume_id=resume_id,
         original_filename=unique_filename,
         raw_text=raw_text or "",
         structured_data={},
-        storage_key=None,
-        candidate_id=candidate_id,
-        is_current=True
+        storage_key=storage_key,
+        candidate_id=candidate_id
     )
 
-    # 2. Upload to storage using the resume_id as the directory name
-    storage_key = await storage_service.upload_file_data(
+    # 2. Upload to storage using the full storage_key
+    await storage_service.upload_file_data_with_key(
         file_data, 
-        file.filename, 
-        file.content_type,
-        dir_id=str(resume_id)
-    )
-    
-    # 3. Update the resume record with the storage key
-    await resume_repo.update_resume(
-        resume_id=resume_id,
-        storage_key=storage_key
+        storage_key,
+        file.content_type
     )
     
     await db.commit()
     
-    logger.info(f"Resume skeleton saved with ID: {resume_id} and storage key: {storage_key}. Starting agent...")
+    logger.info(f"Resume skeleton saved with ID: {resume_id} and storage key: {storage_key}. Registering task and starting agent...")
 
     if background_tasks:
+        # Pre-register the task in the database so that immediate status checks see 'processing'
+        from src.repositories.processing_task_repository import ProcessingTaskRepository
+        task_repo = ProcessingTaskRepository(db)
+        await task_repo.create_task(
+            task_id=resume_id, # For resume tasks, task_id is the resume_id
+            task_type="resume",
+            candidate_id=candidate_id,
+            resume_id=resume_id,
+            status="starting"
+        )
+        await db.commit()
+
         background_tasks.add_task(
             run_resume_agent, 
             file_key=storage_key, 

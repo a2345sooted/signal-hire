@@ -81,7 +81,6 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                     # Update job fields if they are currently null or blank in the database
                     update_kwargs = {
                         "job_id": job_id,
-                        "title": job_title,
                         "structured_data": structured_data_dict,
                         "embedding": legacy_embedding,
                         "markdown_content": markdown_content,
@@ -89,6 +88,10 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         "raw_text": state.get("raw_text"),
                         "details": details_dict
                     }
+
+                    # Only overwrite the job title if it is currently blank or null
+                    if not existing_job.get("title") and job_title:
+                        update_kwargs["title"] = job_title
                     
                     if details_dict:
                         # Map details to top-level fields if currently null
@@ -167,6 +170,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
             from ....repositories.analysis_repository import AnalysisRepository
             import asyncio
             import uuid
+            import hashlib
 
             candidate_repo = CandidateRepository(db)
             analysis_repo = AnalysisRepository(db)
@@ -174,51 +178,83 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
             
             job_data_for_analysis = await repo.get_job_by_id(job_id)
 
+            raw_jd = state.get("raw_text", "")
+            jd_hash = hashlib.sha256(raw_jd.encode()).hexdigest() if raw_jd else None
+            details_hash = hashlib.sha256(json.dumps(details_dict, sort_keys=True).encode()).hexdigest() if details_dict else None
+
             for candidate in attached_candidates:
                 candidate_id = uuid.UUID(candidate["id"])
-                current_resume = await candidate_repo.get_current_resume(candidate_id)
+                current_resume = await candidate_repo.get_latest_resume(candidate_id)
                 
                 if current_resume:
-                    logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Triggering re-analysis for candidate {candidate_id} on job {job_id}")
+                    resume_id = uuid.UUID(current_resume["id"])
                     
-                    # Create/Update skeleton analysis record
-                    skeleton_content = {"status": "processing", "message": "Job description updated. Re-analyzing..."}
-                    
-                    # Check if analysis already exists for this resume/job combo
+                    # Check if re-analysis is actually needed
                     existing = await analysis_repo.get_analysis_for_candidate_job_resume(
                         candidate_id=candidate_id,
                         job_id=job_id,
-                        resume_id=uuid.UUID(current_resume["id"])
+                        resume_id=resume_id
                     )
                     
+                    needs_analysis = True
                     if existing:
-                        await analysis_repo.update_analysis(
-                            analysis_id=uuid.UUID(existing["id"]),
-                            content=skeleton_content,
-                            resume_id=uuid.UUID(current_resume["id"])
-                        )
-                    else:
-                        await analysis_repo.create_analysis(
-                            candidate_id=candidate_id,
+                        # Check if hashes match
+                        if existing.get("jd_hash") == jd_hash and existing.get("details_hash") == details_hash:
+                            content = existing.get("content", {})
+                            if content.get("status") != "processing":
+                                needs_analysis = False
+                                logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Analysis already valid for candidate {candidate_id}. Skipping.")
+
+                    if needs_analysis:
+                        logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Triggering re-analysis for candidate {candidate_id} on job {job_id}")
+                        
+                        # Create/Update skeleton analysis record
+                        skeleton_content = {"status": "processing", "message": "Job description updated. Re-analyzing..."}
+                        
+                        if existing:
+                            await analysis_repo.update_analysis(
+                                analysis_id=uuid.UUID(existing["id"]),
+                                content=skeleton_content,
+                                jd_hash=jd_hash,
+                                details_hash=details_hash
+                            )
+                            analysis_id_re = uuid.UUID(existing["id"])
+                        else:
+                            analysis_id_re = await analysis_repo.create_analysis(
+                                candidate_id=candidate_id,
+                                job_id=job_id,
+                                content=skeleton_content,
+                                resume_id=resume_id,
+                                jd_hash=jd_hash,
+                                details_hash=details_hash
+                            )
+                        
+                        # Pre-register the task in the database
+                        from ....repositories.processing_task_repository import ProcessingTaskRepository
+                        task_repo = ProcessingTaskRepository(db)
+                        await task_repo.create_task(
+                            task_id=analysis_id_re,
+                            task_type="analysis",
                             job_id=job_id,
-                            content=skeleton_content,
-                            resume_id=uuid.UUID(current_resume["id"])
-                        )
-                    await db.commit()
-                    
-                    asyncio.create_task(
-                        run_analyzer_agent(
-                            job_id=job_id,
                             candidate_id=candidate_id,
-                            job_data=job_data_for_analysis,
-                            resume_data={
-                                "raw_text": current_resume["raw_text"],
-                                "structured_data": current_resume["structured_data"],
-                                "resume_id": current_resume["id"]
-                            },
-                            org_id=state.get("org_id")
+                            resume_id=resume_id,
+                            status="starting"
                         )
-                    )
+                        await db.commit()
+                        
+                        asyncio.create_task(
+                            run_analyzer_agent(
+                                job_id=job_id,
+                                candidate_id=candidate_id,
+                                job_data=job_data_for_analysis,
+                                resume_data={
+                                    "raw_text": current_resume["raw_text"],
+                                    "structured_data": current_resume["structured_data"],
+                                    "resume_id": str(resume_id)
+                                },
+                                org_id=state.get("org_id")
+                            )
+                        )
                 else:
                     logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Skipping analysis for candidate {candidate_id} - no current resume.")
 

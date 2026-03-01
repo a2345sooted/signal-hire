@@ -16,14 +16,18 @@ class AnalysisRepository:
         candidate_id: uuid.UUID,
         job_id: uuid.UUID,
         content: dict,
-        resume_id: Optional[uuid.UUID] = None
+        resume_id: Optional[uuid.UUID] = None,
+        jd_hash: Optional[str] = None,
+        details_hash: Optional[str] = None
     ) -> uuid.UUID:
         """Insert a new analysis"""
         analysis = Analysis(
             candidate_id=candidate_id,
             job_id=job_id,
             content=content,
-            resume_id=resume_id
+            resume_id=resume_id,
+            jd_hash=jd_hash,
+            details_hash=details_hash
         )
         self.session.add(analysis)
         await self.session.flush()
@@ -33,7 +37,9 @@ class AnalysisRepository:
         self,
         analysis_id: uuid.UUID,
         content: Optional[dict] = None,
-        resume_id: Optional[uuid.UUID] = None
+        resume_id: Optional[uuid.UUID] = None,
+        jd_hash: Optional[str] = None,
+        details_hash: Optional[str] = None
     ) -> bool:
         """Update an existing analysis"""
         result = await self.session.execute(
@@ -48,6 +54,10 @@ class AnalysisRepository:
             analysis.content = content
         if resume_id is not None:
             analysis.resume_id = resume_id
+        if jd_hash is not None:
+            analysis.jd_hash = jd_hash
+        if details_hash is not None:
+            analysis.details_hash = details_hash
             
         await self.session.flush()
         return True
@@ -143,5 +153,7 @@ class AnalysisRepository:
             "job_id": str(analysis.job_id),
             "resume_id": str(analysis.resume_id),
             "content": analysis.content,
+            "jd_hash": analysis.jd_hash,
+            "details_hash": analysis.details_hash,
             "created_at": analysis.created_at.isoformat() if analysis.created_at else None
         }

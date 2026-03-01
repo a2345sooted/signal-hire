@@ -45,12 +45,13 @@ class JobUpdate(BaseModel):
 class AttachedCandidate(BaseModel):
     id: uuid.UUID
     name: str
-    email: str
+    email: Optional[str] = None
     phone: Optional[str] = None
     location: Optional[str] = None
     analysis_status: Optional[str] = "pending"
     analysis_score: Optional[int] = None
     is_analysis_processing: bool = False
+    attached_resume_id: Optional[uuid.UUID] = None
 
 class JobResponse(BaseModel):
     id: str

@@ -18,7 +18,7 @@ async def attach_candidate(
     request: Request,
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
-    x_org_slug: Annotated[str, Header()],
+    x_org_slug: Annotated[str, Header(alias="X-Org-Slug")],
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
@@ -46,6 +46,13 @@ async def attach_candidate(
     if str(job.get("org_id")) != str(org.id):
         raise HTTPException(status_code=403, detail="Job does not belong to this organization")
 
+    # Require job description to be filled in
+    if not job.get("raw_text") and not job.get("markdown_content"):
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot attach candidate to a job without a job description. Please add a JD first."
+        )
+
     candidate_repo = CandidateRepository(db)
     candidate_data = await candidate_repo.get_candidate_by_id(candidate_id)
     if not candidate_data:
@@ -65,65 +72,112 @@ async def attach_candidate(
     if candidate.org_id and str(candidate.org_id) != str(org.id):
         raise HTTPException(status_code=403, detail="Candidate does not belong to this organization")
 
+    # Trigger analysis if needed
+    # If the candidate has resumes, pick the latest one if not already specified in the attachment
+    # Now we only support ONE original resume, so get that one.
+    resume_repo = ResumeRepository(db)
+    current_resume_obj = await resume_repo.get_original_resume_by_candidate_id(candidate_id)
+    resume_id = current_resume_obj.id if current_resume_obj else None
+
+    # Update attachment with the resume_id (initially the original one)
     attachment_id = await job_repo.attach_candidate(
         job_id=job_id,
-        candidate_id=candidate_id
+        candidate_id=candidate_id,
+        resume_id=resume_id
     )
     
-    # Trigger analysis if needed
-    resume_repo = ResumeRepository(db)
-    from sqlalchemy import select
-    from src.models.db_models import Resume
-    resume_stmt = (
-        select(Resume)
-        .where(Resume.candidate_id == candidate_id)
-        .where(Resume.is_current == True)
-        .order_by(Resume.created_at.desc())
-        .limit(1)
-    )
-    resume_result = await db.execute(resume_stmt)
-    current_resume = resume_result.scalar_one_or_none()
-    
-    if current_resume:
+    if current_resume_obj:
         analysis_repo = AnalysisRepository(db)
         existing_analysis = await analysis_repo.get_analysis_for_candidate_job_resume(
             candidate_id=candidate_id,
             job_id=job_id,
-            resume_id=current_resume.id
+            resume_id=resume_id
         )
         
-        if not existing_analysis:
-            logger.info(f"Triggering analysis for candidate {candidate_id} and job {job_id} using resume {current_resume.id}")
+        # Check if re-analysis is actually needed
+        import hashlib
+        import json
+        
+        raw_jd = job.get("raw_text", "")
+        details = job.get("details", {})
+        
+        jd_hash = hashlib.sha256(raw_jd.encode()).hexdigest() if raw_jd else None
+        details_hash = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest() if details else None
+
+        needs_analysis = True
+        if existing_analysis:
+            # If JD hasn't changed, we can reuse this analysis
+            if existing_analysis.get("jd_hash") == jd_hash and existing_analysis.get("details_hash") == details_hash:
+                content = existing_analysis.get("content", {})
+                if content.get("status") != "processing":
+                    needs_analysis = False
+                    logger.info(f"Analysis already exists and is valid for candidate {candidate_id}, job {job_id}, and resume {resume_id}. Skipping.")
+        
+        if needs_analysis:
+            logger.info(f"Triggering analysis for candidate {candidate_id} and job {job_id} using resume {resume_id}")
             
-            # Create a skeleton analysis record
+            # Create a skeleton analysis record or update existing one
             skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
-            analysis_id = await analysis_repo.create_analysis(
-                candidate_id=candidate_id,
-                job_id=job_id,
-                content=skeleton_content,
-                resume_id=current_resume.id
-            )
             
+            if existing_analysis:
+                await analysis_repo.update_analysis(
+                    analysis_id=uuid.UUID(existing_analysis["id"]),
+                    content=skeleton_content,
+                    jd_hash=jd_hash,
+                    details_hash=details_hash
+                )
+                analysis_id = uuid.UUID(existing_analysis["id"])
+            else:
+                analysis_id = await analysis_repo.create_analysis(
+                    candidate_id=candidate_id,
+                    job_id=job_id,
+                    content=skeleton_content,
+                    resume_id=resume_id,
+                    jd_hash=jd_hash,
+                    details_hash=details_hash
+                )
+            
+            # Pre-register the task in the database
+            from src.repositories.processing_task_repository import ProcessingTaskRepository
+            task_repo = ProcessingTaskRepository(db)
+            await task_repo.create_task(
+                task_id=analysis_id, # For analysis tasks, task_id is the analysis_id
+                task_type="analysis",
+                job_id=job_id,
+                candidate_id=candidate_id,
+                resume_id=resume_id,
+                status="starting"
+            )
+            await db.commit()
+
             background_tasks.add_task(
                 run_analyzer_agent,
                 job_id=job_id,
                 candidate_id=candidate_id,
                 job_data=job,
                 resume_data={
-                    "raw_text": current_resume.raw_text,
-                    "structured_data": current_resume.structured_data,
-                    "resume_id": str(current_resume.id)
+                    "raw_text": current_resume_obj.raw_text,
+                    "structured_data": current_resume_obj.structured_data,
+                    "resume_id": str(resume_id)
                 },
                 org_id=org.id
             )
-        else:
-            logger.info(f"Analysis already exists for candidate {candidate_id}, job {job_id}, and resume {current_resume.id}")
     else:
-        logger.warning(f"No current resume found for candidate {candidate_id}. Skipping analysis.")
+        logger.warning(f"No resume found for candidate {candidate_id}. Skipping analysis.")
 
     await db.commit()
     
+    message = "Candidate attached to job"
+    if current_resume_obj:
+        if needs_analysis:
+            message += " and analysis started"
+        else:
+            message += " and existing analysis reused"
+    else:
+        message += " (no resume found for analysis)"
+    
     return {
         "success": True,
+        "message": message,
         "attachment_id": str(attachment_id)
     }

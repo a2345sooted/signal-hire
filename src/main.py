@@ -26,19 +26,23 @@ async def lifespan(fast_app: FastAPI):
     from src.agents.jd_processor.agent import compile_jd_agent
     from src.agents.resume_processor.agent import compile_resume_agent
     from src.agents.analyzer.agent import compile_analyzer_agent
+    from src.agents.optimizer.agent import compile_optimizer_agent
     from src.agents.registry import (
         register_jd_agent, 
         register_resume_agent, 
-        register_analyzer_agent
+        register_analyzer_agent,
+        register_optimizer_agent
     )
     
     jd_agent = compile_jd_agent(checkpointer)
     resume_agent = compile_resume_agent(checkpointer)
     analyzer_agent = compile_analyzer_agent(checkpointer)
+    optimizer_agent = compile_optimizer_agent(checkpointer)
     
     register_jd_agent(jd_agent)
     register_resume_agent(resume_agent)
     register_analyzer_agent(analyzer_agent)
+    register_optimizer_agent(optimizer_agent)
     
     logger.info("Agents compiled and registered with persistent checkpointer.")
     

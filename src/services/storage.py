@@ -75,6 +75,27 @@ class StorageService:
             logger.error(f"Failed to upload to S3: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to upload to S3: {str(e)}")
 
+    async def upload_file_data_with_key(self, file_data: bytes, storage_key: str, content_type: str = None) -> str:
+        """
+        Uploads file data to S3 using the provided storage key.
+        """
+        try:
+            async with self.session.client('s3', endpoint_url=self.endpoint_url) as s3:
+                extra_args = {}
+                if content_type:
+                    extra_args['ContentType'] = content_type
+                
+                await s3.put_object(
+                    Bucket=self.bucket_name,
+                    Key=storage_key,
+                    Body=file_data,
+                    **extra_args
+                )
+            return storage_key
+        except Exception as e:
+            logger.error(f"Failed to upload to S3 with key {storage_key}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to upload to S3: {str(e)}")
+
     async def upload_file(self, file: UploadFile) -> str:
         try:
             file_data = await file.read()

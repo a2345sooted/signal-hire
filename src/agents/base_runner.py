@@ -5,7 +5,9 @@ import time
 import uuid
 from typing import Dict, Any, Optional, Callable, Awaitable, Protocol, TypeVar, Mapping
 
-from .utils import get_checkpoint_config
+from .utils import get_checkpoint_config, extract_uuid_from_thread_id
+from ..database import AsyncSessionLocal
+from ..repositories.processing_task_repository import ProcessingTaskRepository
 
 logger = logging.getLogger(__name__)
 
@@ -31,28 +33,121 @@ async def run_agent_with_retries(
     start_time = time.time()
     attempt = 1
     
+    # 1. Register task in DB
+    task_id = extract_uuid_from_thread_id(thread_id)
+    if task_id:
+        try:
+            async with AsyncSessionLocal() as db:
+                repo = ProcessingTaskRepository(db)
+                # Try to determine task_type from thread_id prefix
+                task_type = "unknown"
+                if thread_id.startswith("jd_"): task_type = "jd"
+                elif thread_id.startswith("resume_"): task_type = "resume"
+                elif thread_id.startswith("analysis_"): task_type = "analysis"
+                elif thread_id.startswith("optimizer_"): task_type = "optimizer"
+                
+                # Determine associated IDs from initial_state
+                job_id = None
+                if initial_state.get("job_id"):
+                    job_id = uuid.UUID(str(initial_state["job_id"]))
+                
+                candidate_id = None
+                if initial_state.get("candidate_id"):
+                    candidate_id = uuid.UUID(str(initial_state["candidate_id"]))
+                
+                resume_id = None
+                if initial_state.get("resume_id"):
+                    resume_id = uuid.UUID(str(initial_state["resume_id"]))
+
+                await repo.create_task(
+                    task_id=task_id,
+                    task_type=task_type,
+                    job_id=job_id,
+                    candidate_id=candidate_id,
+                    resume_id=resume_id,
+                    status="starting"
+                )
+                await db.commit()
+        except Exception as e:
+            logger.error(f"[{log_tag}] [{thread_id}] Failed to create processing task record: {str(e)}")
+
     while attempt <= max_retries:
         try:
+            # 2. Check current state if possible
+            state = None
+            is_finished = False
+            try:
+                checkpoint_config = get_checkpoint_config(thread_id)
+                saved_state = await agent.aget_state(checkpoint_config)
+                if saved_state and saved_state.values:
+                    state = saved_state.values
+                    # Check if the thread is finished (no next steps)
+                    is_finished = not getattr(saved_state, "next", None)
+            except Exception as e:
+                logger.warning(f"[{log_tag}] [{thread_id}] Failed to get state from checkpointer: {str(e)}")
+
             if attempt > 1:
                 logger.info(f"[{log_tag}] [{thread_id}] 🔄 Retrying agent (attempt {attempt}/{max_retries})")
                 
-                # Try to resume from checkpoint
-                checkpoint_config = get_checkpoint_config(thread_id)
-                state = await agent.aget_state(checkpoint_config)
-                
-                if state and state.values:
-                    # If we have a completion check and it passes for the checkpoint state, return it
-                    if completion_check and completion_check(state.values):  # type: ignore
-                        logger.info(f"[{log_tag}] [{thread_id}] Found completed state in checkpoint.")
-                        return state.values  # type: ignore
+                if state:
+                    # If we have a completion check and it passes for the checkpoint state,
+                    # we still want to make sure the side-effects happen.
+                    # LangGraph naturally resumes and runs any remaining nodes.
+                    logger.info(f"[{log_tag}] [{thread_id}] Found existing state in checkpointer. Resuming to ensure all nodes (including saving) complete.")
                     
-                    logger.info(f"[{log_tag}] [{thread_id}] Resuming from checkpoint...")
-                    final_state = await agent.ainvoke(state.values, config=config)
+                    if task_id:
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                repo = ProcessingTaskRepository(db)
+                                await repo.update_task(task_id, status="processing")
+                                await db.commit()
+                        except: pass
+                    
+                    # If finished and completion check passes, we might need to RE-RUN if results are missing from DB
+                    # But run_agent_with_retries doesn't know about the DB results, only the caller does (via completion_check)
+                    final_state = await agent.ainvoke(None, config=config)
                 else:
                     logger.info(f"[{log_tag}] [{thread_id}] No checkpoint found, restarting.")
+                    if task_id:
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                repo = ProcessingTaskRepository(db)
+                                await repo.update_task(task_id, status="processing")
+                                await db.commit()
+                        except: pass
                     final_state = await agent.ainvoke(initial_state, config=config)
             else:
-                final_state = await agent.ainvoke(initial_state, config=config)
+                # First attempt
+                if state:
+                    if is_finished and completion_check and completion_check(state):
+                        # If finished and completion check already passes, it means we were called
+                        # because something is missing from the production database despite the agent
+                        # thinking it's done. We must FORCE a re-run of the saving node or the whole thing.
+                        # Since it's finished, ainvoke(None) is a no-op.
+                        # We force a re-run from the start by using initial_state.
+                        logger.info(f"[{log_tag}] [{thread_id}] Agent state is already finished and valid, but re-triggered. Forcing restart to ensure DB consistency.")
+                        final_state = await agent.ainvoke(initial_state, config=config)
+                    else:
+                        logger.info(f"[{log_tag}] [{thread_id}] Found existing state in checkpointer. Using it to resume.")
+                        
+                        if task_id:
+                            try:
+                                async with AsyncSessionLocal() as db:
+                                    repo = ProcessingTaskRepository(db)
+                                    await repo.update_task(task_id, status="processing")
+                                    await db.commit()
+                            except: pass
+                        
+                        final_state = await agent.ainvoke(None, config=config)
+                else:
+                    if task_id:
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                repo = ProcessingTaskRepository(db)
+                                await repo.update_task(task_id, status="processing")
+                                await db.commit()
+                        except: pass
+                    final_state = await agent.ainvoke(initial_state, config=config)
 
             # Ensure final_state is a dict
             if not isinstance(final_state, dict):
@@ -71,15 +166,39 @@ async def run_agent_with_retries(
             
             duration = time.time() - start_time
             logger.info(f"[{log_tag}] [{thread_id}] Agent completed successfully in {duration:.2f}s")
+            
+            # Update task to completed
+            if task_id:
+                try:
+                    async with AsyncSessionLocal() as db:
+                        repo = ProcessingTaskRepository(db)
+                        await repo.update_task(task_id, status="completed")
+                        await db.commit()
+                except: pass
+                
             return final_state  # type: ignore
 
         except asyncio.CancelledError:
             logger.info(f"[{log_tag}] [{thread_id}] Agent execution cancelled.")
+            if task_id:
+                try:
+                    async with AsyncSessionLocal() as db:
+                        repo = ProcessingTaskRepository(db)
+                        await repo.update_task(task_id, status="cancelled")
+                        await db.commit()
+                except: pass
             return {}  # type: ignore
         except Exception as e:
             logger.warning(f"[{log_tag}] [{thread_id}] ⚠️ Attempt {attempt} failed: {str(e)}")
             if attempt >= max_retries:
                 logger.error(f"[{log_tag}] [{thread_id}] ❌ Agent failed after {max_retries} attempts.", exc_info=True)
+                if task_id:
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            repo = ProcessingTaskRepository(db)
+                            await repo.update_task(task_id, status="failed", error_message=str(e))
+                            await db.commit()
+                    except: pass
                 if error_broadcaster:
                     await error_broadcaster(e)
                 raise e

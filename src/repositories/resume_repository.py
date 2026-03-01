@@ -44,29 +44,13 @@ class ResumeRepository:
         job_id: Optional[uuid.UUID] = None,
         candidate_id: Optional[uuid.UUID] = None,
         is_active: bool = True,
-        is_current: bool = True
+        is_generated: bool = False,
+        is_optimized: bool = False
     ) -> uuid.UUID:
         """Insert a new resume with its embedding"""
         import hashlib
         text_hash = hashlib.sha256(raw_text.encode()).hexdigest() if raw_text else None
         
-        # If this is the current resume, set others for this candidate/job to not current
-        if is_current:
-            if candidate_id:
-                from sqlalchemy import update
-                await self.session.execute(
-                    update(Resume)
-                    .where(Resume.candidate_id == candidate_id)
-                    .values(is_current=False)
-                )
-            elif job_id:
-                from sqlalchemy import update
-                await self.session.execute(
-                    update(Resume)
-                    .where(Resume.job_id == job_id)
-                    .values(is_current=False)
-                )
-
         resume = Resume(
             original_filename=original_filename,
             raw_text=raw_text,
@@ -76,7 +60,54 @@ class ResumeRepository:
             job_id=job_id,
             candidate_id=candidate_id,
             is_active=is_active,
-            is_current=is_current
+            is_generated=is_generated,
+            is_optimized=is_optimized
+        )
+        self.session.add(resume)
+        await self.session.flush()
+
+        if embedding:
+            emb = Embedding(
+                resume_id=resume.id,
+                candidate_id=candidate_id,
+                embedding_type="legacy",
+                vector=embedding
+            )
+            self.session.add(emb)
+            await self.session.flush()
+
+        return resume.id
+
+    async def create_resume_with_id(
+        self,
+        resume_id: uuid.UUID,
+        original_filename: str,
+        raw_text: str = "",
+        structured_data: dict = None,
+        embedding: List[float] = None,
+        storage_key: Optional[str] = None,
+        job_id: Optional[uuid.UUID] = None,
+        candidate_id: Optional[uuid.UUID] = None,
+        is_active: bool = True,
+        is_generated: bool = False,
+        is_optimized: bool = False
+    ) -> uuid.UUID:
+        """Insert a new resume with a pre-generated ID"""
+        import hashlib
+        text_hash = hashlib.sha256(raw_text.encode()).hexdigest() if raw_text else None
+        
+        resume = Resume(
+            id=resume_id,
+            original_filename=original_filename,
+            raw_text=raw_text,
+            raw_text_hash=text_hash,
+            structured_data=structured_data or {},
+            storage_key=storage_key,
+            job_id=job_id,
+            candidate_id=candidate_id,
+            is_active=is_active,
+            is_generated=is_generated,
+            is_optimized=is_optimized
         )
         self.session.add(resume)
         await self.session.flush()
@@ -220,7 +251,7 @@ class ResumeRepository:
         
         # Initial check
         result = await self.session.execute(
-            select(Resume).where(Resume.original_filename == filename)
+            select(Resume).where(Resume.original_filename == filename).limit(1)
         )
         if result.scalar_one_or_none() is None:
             return filename
@@ -230,7 +261,7 @@ class ResumeRepository:
         while True:
             new_filename = f"{base_name}_{counter}{extension}"
             result = await self.session.execute(
-                select(Resume).where(Resume.original_filename == new_filename)
+                select(Resume).where(Resume.original_filename == new_filename).limit(1)
             )
             if result.scalar_one_or_none() is None:
                 return new_filename
@@ -258,7 +289,8 @@ class ResumeRepository:
         job_id: Optional[uuid.UUID] = None,
         candidate_id: Optional[uuid.UUID] = None,
         is_active: Optional[bool] = None,
-        is_current: Optional[bool] = None
+        is_generated: Optional[bool] = None,
+        is_optimized: Optional[bool] = None
     ) -> bool:
         """Update an existing resume's details"""
         result = await self.session.execute(
@@ -269,24 +301,6 @@ class ResumeRepository:
         if not resume:
             return False
             
-        if is_current:
-            if resume.candidate_id:
-                from sqlalchemy import update
-                await self.session.execute(
-                    update(Resume)
-                    .where(Resume.candidate_id == resume.candidate_id)
-                    .where(Resume.id != resume_id)
-                    .values(is_current=False)
-                )
-            elif resume.job_id:
-                from sqlalchemy import update
-                await self.session.execute(
-                    update(Resume)
-                    .where(Resume.job_id == resume.job_id)
-                    .where(Resume.id != resume_id)
-                    .values(is_current=False)
-                )
-
         if raw_text is not None:
             resume.raw_text = raw_text
             import hashlib
@@ -313,8 +327,10 @@ class ResumeRepository:
             resume.candidate_id = candidate_id
         if is_active is not None:
             resume.is_active = is_active
-        if is_current is not None:
-            resume.is_current = is_current
+        if is_generated is not None:
+            resume.is_generated = is_generated
+        if is_optimized is not None:
+            resume.is_optimized = is_optimized
             
         await self.session.flush()
         return True
@@ -327,3 +343,13 @@ class ResumeRepository:
             .order_by(Resume.created_at.desc())
         )
         return result.scalars().all()
+
+    async def get_original_resume_by_candidate_id(self, candidate_id: uuid.UUID) -> Optional[Resume]:
+        """Retrieve the single original (non-optimized) resume for a specific candidate"""
+        result = await self.session.execute(
+            select(Resume)
+            .where(Resume.candidate_id == candidate_id)
+            .where(Resume.is_optimized == False)
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

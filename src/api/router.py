@@ -4,7 +4,8 @@ from src.api.jobs import (
     create_job, save_jd, get_jobs, upload_resume, get_resume,
     get_resume_analysis, get_resume_pdf, get_job, get_analysis,
     stop_resume_processing, delete_job, patch_job, add_job_note,
-    patch_job_note, delete_job_note, attach_candidate, detach_candidate
+    patch_job_note, delete_job_note, attach_candidate, detach_candidate,
+    optimize_resume, get_optimized_resume, change_attachment_resume
 )
 from src.api.organizations import create_organization, get_my_organizations
 from src.api.users import get_me
@@ -12,7 +13,7 @@ from src.api.candidates import (
     create_candidate, get_candidate, get_candidates, patch_candidate,
     add_candidate_note, get_candidate_notes, patch_candidate_note,
     delete_candidate_note, delete_candidate, upload_resume as upload_candidate_resume,
-    get_resumes as get_candidate_resumes
+    get_resumes as get_candidate_resumes, delete_resume as delete_candidate_resume
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ router.post("/v1/jobs/{job_id}/notes", tags=["jobs"])(add_job_note)
 router.patch("/v1/jobs/{job_id}/notes/{note_id}", tags=["jobs"])(patch_job_note)
 router.delete("/v1/jobs/{job_id}/notes/{note_id}", tags=["jobs"])(delete_job_note)
 router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/attach", tags=["jobs"])(attach_candidate)
+router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/change-resume", tags=["jobs"])(change_attachment_resume)
+router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/optimize-resume", tags=["jobs"])(optimize_resume)
+router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/optimized-resume", tags=["jobs"])(get_optimized_resume)
 router.delete("/v1/jobs/{job_id}/candidates/{candidate_id}/detach", tags=["jobs"])(detach_candidate)
 
 router.post("/v1/organizations", tags=["organizations"])(create_organization)
@@ -45,6 +49,7 @@ router.patch("/v1/candidates/{candidate_id}/notes/{note_id}", tags=["candidates"
 router.delete("/v1/candidates/{candidate_id}/notes/{note_id}", tags=["candidates"])(delete_candidate_note)
 router.post("/v1/candidates/{candidate_id}/resumes/upload", tags=["candidates"])(upload_candidate_resume)
 router.get("/v1/candidates/{candidate_id}/resumes", tags=["candidates"])(get_candidate_resumes)
+router.delete("/v1/candidates/{candidate_id}/resumes/{resume_id}", tags=["candidates"])(delete_candidate_resume)
 
 router.get("/v1/users/me", tags=["users"])(get_me)
 

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def upload_resume(
     request: Request,
     job_id: Annotated[uuid.UUID, Form(...)],
-    x_org_slug: Annotated[str, Header()],
+    x_org_slug: Annotated[str, Header(alias="X-Org-Slug")],
     resume: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_db)
@@ -53,54 +53,70 @@ async def upload_resume(
     file_data = await resume.read()
     raw_text = await extract_text_from_bytes(file_data, resume.filename)
     
+    resume_repo = ResumeRepository(db)
+    
+    # Check for exact duplicate in ALL resumes
     if raw_text:
         text_hash = hashlib.sha256(raw_text.encode()).hexdigest()
-        resume_repo = ResumeRepository(db)
-        existing_resume = await resume_repo.get_resume_by_hash(text_hash)
+        existing_any = await resume_repo.get_resume_by_hash(text_hash)
         
-        if existing_resume:
-            matching_filename = existing_resume.get("original_filename") or "an existing resume"
+        if existing_any:
+            matching_filename = existing_any.get("original_filename") or "an existing resume"
             logger.warning(f"Duplicate resume detected. Matches: {matching_filename}")
             raise HTTPException(
                 status_code=409, 
                 detail=f"This resume exactly matches another resume already in the system: {matching_filename}"
             )
 
-    # 1. Create a skeleton record in the database first to get a storage ID (resume_id)
-    resume_repo = ResumeRepository(db)
+    # 1. Create a record in the database
+    # In this endpoint, we don't have a candidate_id yet (it's created by the agent later).
+    # But if it's an existing candidate, the agent (save_resume_node) should handle the overwrite.
+    # However, for consistency with the candidate upload route, we should probably follow the same pattern
+    # if we knew the candidate. But we don't.
+    # So we'll let the agent handle the single-resume constraint during finalization.
     
     # Ensure filename is unique (optional here, but good for record keeping)
     unique_filename = await resume_repo.get_unique_filename(resume.filename)
 
-    resume_id = await resume_repo.create_resume(
+    # Follow new convention for non-optimized resumes: jobs/:jobId/resumes/:resumeId
+    # (Since this is a job-specific upload and candidate might not be created yet)
+    resume_id = uuid.uuid4()
+    storage_key = f"jobs/{job_id}/resumes/{resume_id}"
+
+    await resume_repo.create_resume_with_id(
+        resume_id=resume_id,
         original_filename=unique_filename,
         raw_text=raw_text or "",
         structured_data={},
         embedding=None,
-        storage_key=None, # Will be set after upload
-        job_id=job_id,
-        is_current=True
+        storage_key=storage_key,
+        job_id=job_id
     )
     
-    # 2. Upload to storage using the resume_id as the directory name
-    storage_key = await storage_service.upload_file_data(
+    # 2. Upload to storage
+    await storage_service.upload_file_data_with_key(
         file_data, 
-        resume.filename, 
-        resume.content_type,
-        dir_id=str(resume_id)
-    )
-    
-    # 3. Update the resume record with the storage key
-    await resume_repo.update_resume(
-        resume_id=resume_id,
-        storage_key=storage_key
+        storage_key,
+        resume.content_type
     )
     
     await db.commit()
     
-    logger.info(f"Resume skeleton saved with ID: {resume_id} and storage key: {storage_key}. Starting agent...")
+    logger.info(f"Resume skeleton saved with ID: {resume_id} and storage key: {storage_key}. Registering task and starting agent...")
 
     if background_tasks:
+        # Pre-register the task in the database so that immediate status checks see 'processing'
+        from src.repositories.processing_task_repository import ProcessingTaskRepository
+        task_repo = ProcessingTaskRepository(db)
+        await task_repo.create_task(
+            task_id=resume_id, # For resume tasks, task_id is the resume_id
+            task_type="resume",
+            job_id=job_id,
+            resume_id=resume_id,
+            status="starting"
+        )
+        await db.commit()
+
         background_tasks.add_task(
             run_resume_agent, 
             file_key=storage_key, 

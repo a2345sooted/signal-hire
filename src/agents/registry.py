@@ -4,6 +4,7 @@ from typing import Any
 _jd_agent = None
 _resume_agent = None
 _analyzer_agent = None
+_optimizer_agent = None
 
 def register_jd_agent(agent: Any):
     global _jd_agent
@@ -31,3 +32,12 @@ def get_analyzer_agent():
     if _analyzer_agent is None:
         raise RuntimeError("Analyzer Agent not compiled. Ensure compilation happens during startup.")
     return _analyzer_agent
+
+def register_optimizer_agent(agent: Any):
+    global _optimizer_agent
+    _optimizer_agent = agent
+
+def get_optimizer_agent():
+    if _optimizer_agent is None:
+        raise RuntimeError("Optimizer Agent not compiled. Ensure compilation happens during startup.")
+    return _optimizer_agent

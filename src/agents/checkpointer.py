@@ -21,12 +21,16 @@ async def init_checkpointer():
     if _pool is None:
         _pool = AsyncConnectionPool(
             conninfo=DATABASE_URL,
-            max_size=20,
-            kwargs={"autocommit": True, "prepare_threshold": 0},
+            max_size=50,
+            kwargs={
+                "autocommit": True, 
+                "prepare_threshold": 0,
+            },
             open=False,
+            check=AsyncConnectionPool.check_connection,
         )
         await _pool.open()
-        logger.info("Connection pool for LangGraph checkpointer opened")
+        logger.info("Connection pool for LangGraph checkpointer opened (size: 50)")
     
     if _checkpointer is None:
         _checkpointer = AsyncPostgresSaver(conn=_pool)

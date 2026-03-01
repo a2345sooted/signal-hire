@@ -45,7 +45,7 @@ class JobRepository:
         await self.session.flush()
         return True
 
-    async def attach_candidate(self, job_id: uuid.UUID, candidate_id: uuid.UUID) -> uuid.UUID:
+    async def attach_candidate(self, job_id: uuid.UUID, candidate_id: uuid.UUID, resume_id: Optional[uuid.UUID] = None) -> uuid.UUID:
         """Attach a candidate to a job"""
         from ..models.db_models import JobAttachment
         
@@ -58,9 +58,12 @@ class JobRepository:
         existing = result.scalar_one_or_none()
         
         if existing:
+            if resume_id is not None:
+                existing.resume_id = resume_id
+                await self.session.flush()
             return existing.id
             
-        attachment = JobAttachment(job_id=job_id, candidate_id=candidate_id)
+        attachment = JobAttachment(job_id=job_id, candidate_id=candidate_id, resume_id=resume_id)
         self.session.add(attachment)
         await self.session.flush()
         return attachment.id
@@ -282,24 +285,9 @@ class JobRepository:
     async def update_job(
         self,
         job_id: uuid.UUID,
-        title: Optional[str] = None,
-        client_name: Optional[str] = None,
-        structured_data: Optional[dict] = None,
-        embedding: Optional[List[float]] = None,
-        markdown_content: Optional[str] = None,
-        org_id: Optional[uuid.UUID] = None,
-        location: Optional[str] = None,
-        work_arrangement: Optional[str] = None,
-        hybrid_days_per_week: Optional[int] = None,
-        pay_range_min: Optional[int] = None,
-        pay_range_max: Optional[int] = None,
-        pay_type: Optional[str] = None,
-        employment_type: Optional[str] = None,
-        offers_relocation: Optional[bool] = None,
-        raw_text: Optional[str] = None,
-        details: Optional[dict] = None
+        **kwargs
     ) -> bool:
-        """Update an existing job's details"""
+        """Update an existing job's details using keyword arguments"""
         result = await self.session.execute(
             select(Job).where(Job.id == job_id)
         )
@@ -308,49 +296,21 @@ class JobRepository:
         if not job:
             return False
             
-        if title is not None:
-            job.title = title
-        if client_name is not None:
-            job.client_name = client_name
-        if structured_data is not None:
-            job.structured_data = structured_data
-        if embedding is not None:
-            # Delete existing embeddings of type 'legacy' and add new one
-            # Alternatively, we could just add a new one, but for 'update' it usually means replacement
-            from sqlalchemy import delete
-            await self.session.execute(
-                delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
-            )
-            emb = Embedding(
-                job_id=job_id,
-                embedding_type="legacy",
-                vector=embedding
-            )
-            self.session.add(emb)
-        if markdown_content is not None:
-            job.markdown_content = markdown_content
-        if org_id is not None:
-            job.org_id = org_id
-        if location is not None:
-            job.location = location
-        if work_arrangement is not None:
-            job.work_arrangement = work_arrangement
-        if hybrid_days_per_week is not None:
-            job.hybrid_days_per_week = hybrid_days_per_week
-        if pay_range_min is not None:
-            job.pay_range_min = pay_range_min
-        if pay_range_max is not None:
-            job.pay_range_max = pay_range_max
-        if pay_type is not None:
-            job.pay_type = pay_type
-        if employment_type is not None:
-            job.employment_type = employment_type
-        if offers_relocation is not None:
-            job.offers_relocation = offers_relocation
-        if raw_text is not None:
-            job.raw_text = raw_text
-        if details is not None:
-            job.details = details
+        for key, value in kwargs.items():
+            if hasattr(job, key):
+                setattr(job, key, value)
+            elif key == "embedding" and value is not None:
+                # Special handling for legacy embedding
+                from sqlalchemy import delete
+                await self.session.execute(
+                    delete(Embedding).where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
+                )
+                emb = Embedding(
+                    job_id=job_id,
+                    embedding_type="legacy",
+                    vector=value
+                )
+                self.session.add(emb)
             
         await self.session.flush()
         return True
@@ -370,7 +330,6 @@ class JobRepository:
 
         # Get attached candidates
         from ..models.db_models import JobAttachment, JobRecommendation, Candidate, Analysis
-        from ..agents.analyzer.run import is_analysis_active
 
         attached_result = await self.session.execute(
             select(Candidate).join(JobAttachment).where(JobAttachment.job_id == job_id)
@@ -378,41 +337,97 @@ class JobRepository:
         attached_candidates = attached_result.scalars().all()
 
         # Build attached_candidates with analysis status and score
-        from ..agents.resume_processor.run import is_resume_processing_active
+        from ..agents.analyzer.run import is_analysis_active
         formatted_attached_candidates = []
-        for c in attached_candidates:
+        
+        # Get attached candidates with their specific resumes
+        from ..models.db_models import JobAttachment, Candidate, Analysis
+        stmt = (
+            select(Candidate, JobAttachment.resume_id)
+            .join(JobAttachment, Candidate.id == JobAttachment.candidate_id)
+            .where(JobAttachment.job_id == job_id)
+        )
+        attached_result = await self.session.execute(stmt)
+        attached_rows = attached_result.all()
+
+        for row in attached_rows:
+            c = row.Candidate
+            attached_resume_id = row.resume_id
+
             # Check for analysis in DB
             analysis_stmt = (
                 select(Analysis)
                 .where(Analysis.candidate_id == c.id)
                 .where(Analysis.job_id == job_id)
-                .order_by(Analysis.created_at.desc())
-                .limit(1)
             )
+            
+            # If we have a specific resume attached, look for analysis with that resume
+            if attached_resume_id:
+                analysis_stmt = analysis_stmt.where(Analysis.resume_id == attached_resume_id)
+                
+            analysis_stmt = analysis_stmt.order_by(Analysis.created_at.desc()).limit(1)
+            
             analysis_result = await self.session.execute(analysis_stmt)
             analysis = analysis_result.scalar_one_or_none()
 
-            analysis_status = "ready"
+            # Check if a completed analysis exists
+            is_ready = analysis and analysis.content.get("score") is not None
+
+            # Get the latest task (active or not) to compare with analysis
+            from ..models.db_models import ProcessingTask
+            from datetime import datetime, timezone, timedelta
+            
+            task_stmt = (
+                select(ProcessingTask)
+                .where(ProcessingTask.job_id == job_id)
+                .where(ProcessingTask.candidate_id == c.id)
+                .where(ProcessingTask.task_type == "analysis")
+            )
+            
+            if attached_resume_id:
+                task_stmt = task_stmt.where(ProcessingTask.resume_id == attached_resume_id)
+                
+            task_stmt = task_stmt.order_by(ProcessingTask.created_at.desc()).limit(1)
+            
+            task_result = await self.session.execute(task_stmt)
+            latest_task = task_result.scalar_one_or_none()
+            
             is_processing = False
-            score = None
+            if latest_task and latest_task.status in ["starting", "processing"]:
+                task_time = latest_task.created_at
+                if task_time.tzinfo is None:
+                    task_time = task_time.replace(tzinfo=timezone.utc)
+                
+                # It's only truly processing if the task is NOT stuck
+                now = datetime.now(timezone.utc)
+                last_activity = latest_task.updated_at or latest_task.created_at
+                if last_activity.tzinfo is None:
+                    last_activity = last_activity.replace(tzinfo=timezone.utc)
+                
+                is_stuck = (now - last_activity).total_seconds() / 60 >= 10 # 10 minute timeout
+                
+                if not is_stuck:
+                    # If we have a ready analysis, we ONLY consider it processing if the task
+                    # is SIGNIFICANTLY newer than the analysis completion (to avoid race conditions).
+                    if not is_ready:
+                        is_processing = True
+                    else:
+                        analysis_updated_at = analysis.updated_at or analysis.created_at
+                        if analysis_updated_at.tzinfo is None:
+                            analysis_updated_at = analysis_updated_at.replace(tzinfo=timezone.utc)
+                        
+                        # Use a small buffer (e.g., 5 seconds) to ensure that we don't 
+                        # show "processing" for a task that actually finished just now
+                        # but hasn't been deleted yet.
+                        if task_time > (analysis_updated_at + timedelta(seconds=5)):
+                            is_processing = True
+
+            analysis_status = "processing" if is_processing else ("ready" if is_ready else "pending")
             
-            # If resume is processing, then EVERYTHING is processing for this candidate
-            if is_resume_processing_active(candidate_id=c.id):
-                is_processing = True
-            elif analysis:
-                if analysis.content.get("status") == "processing":
-                    is_processing = True
-                else:
-                    score = analysis.content.get("score")
-            else:
-                # If no DB record, check memory registry
-                if is_analysis_active(job_id, c.id):
-                    is_processing = True
-            
-            if is_processing:
-                analysis_status = "processing"
-            elif not analysis:
-                analysis_status = "pending"
+            # Final decision for UI processing flag
+            display_processing = is_processing
+
+            score = analysis.content.get("score") if analysis else None
 
             formatted_attached_candidates.append({
                 "id": str(c.id),
@@ -422,7 +437,8 @@ class JobRepository:
                 "location": c.location,
                 "analysis_status": analysis_status,
                 "analysis_score": score,
-                "is_analysis_processing": is_processing
+                "is_analysis_processing": display_processing,
+                "attached_resume_id": str(attached_resume_id) if attached_resume_id else None
             })
 
         # Get recommended candidates
@@ -537,9 +553,10 @@ class JobRepository:
                         "candidate_id": str(resume.candidate_id),
                         "name": resume.structured_data.get("contact", {}).get("name") or "Unknown",
                         "rank": resume.structured_data.get("rank") or 0, # Defaulting to 0 if not found
+                        "is_optimized": resume.is_optimized,
                         "analysis_id": str([a.id for a in job.analyses if a.candidate_id == resume.candidate_id][0]) if any(a.candidate_id == resume.candidate_id for a in job.analyses) else None
                     }
-                    for resume in job.resumes
+                    for resume in job.resumes if not resume.is_optimized or str(resume.job_id) == str(job.id)
                 ]
             }
             for job in jobs

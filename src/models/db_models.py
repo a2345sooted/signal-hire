@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, String, Text, DateTime, Integer, Boolean, Index, ForeignKey, Enum
@@ -23,8 +23,8 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sub = Column(String(255), unique=True, nullable=False)
     email = Column(String(255), unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     organizations = relationship("OrganizationUser", back_populates="user")
 
@@ -35,8 +35,8 @@ class Organization(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     slug = Column(String(255), unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     users = relationship("OrganizationUser", back_populates="organization")
 
@@ -48,8 +48,8 @@ class OrganizationUser(Base):
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role = Column(Enum(OrgRole), nullable=False, default=OrgRole.RECRUITER)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     organization = relationship("Organization", back_populates="users")
     user = relationship("User", back_populates="organizations")
@@ -61,7 +61,7 @@ class Candidate(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
     name = Column(String(255), nullable=False)
-    email = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
     
     # New fields
     phone = Column(String(50), nullable=True)
@@ -72,8 +72,8 @@ class Candidate(Base):
     work_preference = Column(JSONB, nullable=True)  # List of work preferences: remote, hybrid, in-office
     open_to_relocation = Column(Boolean, nullable=True, default=False)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="candidate", cascade="all, delete-orphan")
@@ -91,8 +91,8 @@ class CandidateNote(Base):
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     candidate = relationship("Candidate", back_populates="notes")
     user = relationship("User")
@@ -110,9 +110,12 @@ class Resume(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    # is_current is deprecated and should not be used
     is_current = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_generated = Column(Boolean, nullable=False, default=False)
+    is_optimized = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     job = relationship("Job", back_populates="resumes")
     candidate = relationship("Candidate", back_populates="resumes")
@@ -145,8 +148,8 @@ class Job(Base):
     employment_type = Column(String(50), nullable=True)  # fte, w2, contract
     offers_relocation = Column(Boolean, nullable=False, default=False)
     
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     resumes = relationship("Resume", back_populates="job", cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="job", cascade="all, delete-orphan")
@@ -162,10 +165,12 @@ class JobAttachment(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    resume_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     job = relationship("Job", back_populates="attached_candidates")
     candidate = relationship("Candidate", back_populates="attached_jobs")
+    resume = relationship("Resume")
 
 class JobRecommendation(Base):
     __tablename__ = "job_recommendations"
@@ -174,7 +179,7 @@ class JobRecommendation(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
     score = Column(Integer, nullable=True)  # Match score
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     job = relationship("Job", back_populates="recommended_candidates")
     candidate = relationship("Candidate", back_populates="recommended_jobs")
@@ -186,7 +191,7 @@ class CandidateRecommendation(Base):
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     score = Column(Integer, nullable=True)  # Match score
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     candidate = relationship("Candidate", back_populates="candidate_recommendations")
     job = relationship("Job", back_populates="candidate_recommendations")
@@ -198,8 +203,8 @@ class JobNote(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     content = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     job = relationship("Job", back_populates="notes")
     user = relationship("User")
@@ -212,8 +217,10 @@ class Analysis(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
     resume_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="CASCADE"), nullable=True)
     content = Column(JSONB, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    jd_hash = Column(Text, nullable=True)
+    details_hash = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     candidate = relationship("Candidate", back_populates="analyses")
     job = relationship("Job", back_populates="analyses")
@@ -229,9 +236,26 @@ class Embedding(Base):
     embedding_type = Column(String(50), nullable=False)
     vector = Column(Vector(1536), nullable=False)
     metadata_json = Column("metadata", JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     job = relationship("Job", back_populates="embeddings")
     candidate = relationship("Candidate", back_populates="embeddings")
     resume = relationship("Resume", back_populates="embeddings")
+
+class ProcessingTask(Base):
+    __tablename__ = "processing_tasks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_type = Column(String(50), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True)
+    resume_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="CASCADE"), nullable=True)
+    status = Column(String(50), nullable=False)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    job = relationship("Job")
+    candidate = relationship("Candidate")
+    resume = relationship("Resume")

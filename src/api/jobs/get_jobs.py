@@ -38,8 +38,13 @@ async def get_jobs(
         logger.warning("JobRepository.get_all_jobs() returned None!")
         return []
     
+    from src.agents.jd_processor.run import is_jd_processing_active
+    
     formatted_jobs = []
     for job in jobs:
+        # Check if a processing task is active for this job
+        is_processing = await is_jd_processing_active(job["id"])
+        
         resumes = []
         if job.get("resumes"):
             for resume in job["resumes"]:
@@ -69,7 +74,7 @@ async def get_jobs(
             "id": str(job["id"]),
             "title": job.get("title") or "Untitled Job",
             "client_name": job.get("client_name"),
-            "markdown_text": job.get("markdown_content") or job.get("raw_text") or "",
+            "markdown_text": "SIGNAL_PROCESSING" if is_processing else (job.get("markdown_content") or job.get("raw_text") or ""),
             "raw_text": job.get("raw_text") or "",
             "location": job.get("location"),
             "work_arrangement": job.get("work_arrangement"),

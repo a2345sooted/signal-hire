@@ -8,6 +8,9 @@ from ...agents.utils import generate_thread_id
 from ...constants import TASK_ANALYSIS, CONFIG_THREAD_ID_KEY
 from ...agents.base_runner import run_agent_with_retries, handle_active_task, manage_active_task, cancel_agent_task
 
+from ...database import AsyncSessionLocal
+from ...repositories.processing_task_repository import ProcessingTaskRepository
+
 logger = logging.getLogger(__name__)
 
 # Track active analysis tasks
@@ -88,12 +91,13 @@ async def run_analyzer_agent(
         if _active_analysis_tasks.get(thread_id) == task:
             del _active_analysis_tasks[thread_id]
 
-async def cancel_analyzer_agent(job_id: uuid.UUID, candidate_id: uuid.UUID):
+async def cancel_analyzer_agent(job_id: uuid.UUID, candidate_id: uuid.UUID, resume_id: Optional[uuid.UUID] = None):
     """Cancels a running analyzer agent task."""
-    thread_id = generate_thread_id("analysis", job_id, str(candidate_id))
+    thread_id = generate_thread_id("analysis", job_id, str(resume_id or candidate_id))
     return await cancel_agent_task(thread_id, _active_analysis_tasks, "ANALYZER_RUN")
 
-def is_analysis_active(job_id: uuid.UUID, candidate_id: uuid.UUID) -> bool:
+async def is_analysis_active(job_id: uuid.UUID, candidate_id: uuid.UUID) -> bool:
     """Check if an analysis processing task is currently active for a given job_id and candidate_id."""
-    thread_id = generate_thread_id("analysis", job_id, str(candidate_id))
-    return thread_id in _active_analysis_tasks
+    async with AsyncSessionLocal() as db:
+        repo = ProcessingTaskRepository(db)
+        return await repo.is_task_active(task_type="analysis", job_id=job_id, candidate_id=candidate_id)

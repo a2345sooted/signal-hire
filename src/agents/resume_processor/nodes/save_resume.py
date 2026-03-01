@@ -173,28 +173,64 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                 )
                 resume_id = existing_resume_id
             else:
-                # Ensure filename is unique
-                unique_filename = await repo.get_unique_filename(original_filename)
-                if unique_filename != original_filename:
-                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Renamed resume from {original_filename} to {unique_filename} to avoid collision.")
+                # ENFORCE SINGLE ORIGINAL RESUME CONSTRAINT
+                # Check if this candidate already has an original resume
+                existing_original = await repo.get_original_resume_by_candidate_id(candidate_id)
+                
+                if existing_original:
+                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Candidate {candidate_id} already has a resume {existing_original.id}. Overwriting.")
+                    
+                    # Delete old storage if different
+                    if existing_original.storage_key and existing_original.storage_key != storage_key:
+                        try:
+                            await storage_service.delete_file(existing_original.storage_key)
+                        except: pass
+                    
+                    # Update existing record instead of creating new one
+                    await repo.update_resume(
+                        resume_id=existing_original.id,
+                        raw_text=raw_text,
+                        structured_data=structured_data,
+                        embedding=legacy_embedding,
+                        storage_key=storage_key, # Use the new storage key
+                        job_id=state.get("job_id"),
+                        candidate_id=candidate_id
+                    )
+                    resume_id = existing_original.id
+                    
+                    # If the thread was started with a new resume_id, we might have an orphan skeleton
+                    # created in the API. Let's check.
+                    if state.get("resume_id") and state.get("resume_id") != resume_id:
+                         # This shouldn't happen if existing_resume_id was set, but just in case
+                         pass
+                else:
+                    # Ensure filename is unique
+                    unique_filename = await repo.get_unique_filename(original_filename)
+                    if unique_filename != original_filename:
+                        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Renamed resume from {original_filename} to {unique_filename} to avoid collision.")
 
-                resume_id = await repo.create_resume(
-                    original_filename=unique_filename,
-                    raw_text=raw_text,
-                    structured_data=structured_data,
-                    embedding=legacy_embedding,
-                    storage_key=storage_key,
-                    job_id=state.get("job_id"),
-                    candidate_id=candidate_id
-                )
+                    resume_id = await repo.create_resume(
+                        original_filename=unique_filename,
+                        raw_text=raw_text,
+                        structured_data=structured_data,
+                        embedding=legacy_embedding,
+                        storage_key=storage_key,
+                        job_id=state.get("job_id"),
+                        candidate_id=candidate_id
+                    )
             
             # 3. Handle additional embeddings
             from sqlalchemy import delete
-            from src.models.db_models import Embedding
+            from src.models.db_models import Embedding, ProcessingTask
             await db.execute(
                 delete(Embedding).where(Embedding.resume_id == resume_id, Embedding.embedding_type != "legacy")
             )
             await repo.add_embeddings(resume_id=resume_id, candidate_id=candidate_id, embeddings=embeddings_to_save)
+            
+            # Delete the resume task as it's finished saving and parsing
+            await db.execute(
+                delete(ProcessingTask).where(ProcessingTask.id == resume_id)
+            )
             
             await db.commit()
             
@@ -205,96 +241,184 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
         from ....repositories.analysis_repository import AnalysisRepository
         import asyncio
 
-        if job_id:
-            async with AsyncSessionLocal() as db:
-                jd_repo = JobRepository(db)
-                analysis_repo = AnalysisRepository(db)
-                job_data = await jd_repo.get_job_by_id(job_id)
-                
-                if job_data:
-                    # Check if analysis already exists for this resume/job combo
-                    existing = await analysis_repo.get_analysis_for_candidate_job_resume(
-                        candidate_id=candidate_id,
-                        job_id=job_id,
-                        resume_id=resume_id
-                    )
+        # Only trigger analysis if this is the first resume for the candidate
+        async with AsyncSessionLocal() as db:
+            resume_repo = ResumeRepository(db)
+            candidate_resumes = await resume_repo.get_resumes_by_candidate_id(candidate_id)
+            is_first_resume = len(candidate_resumes) <= 1 # The one we just saved is already in the DB if it was a new record
+            
+            # The user wants to NOT kickoff a new analysis for the attached roles if a new resume is uploaded
+            # (after there's already been a resume).
+            # This means we only trigger if it IS the first resume.
+            if not is_first_resume:
+                logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Not the first resume for candidate {candidate_id}. Skipping automatic analysis trigger for all jobs.")
+            else:
+                if job_id:
+                    jd_repo = JobRepository(db)
+                    analysis_repo = AnalysisRepository(db)
+                    job_data = await jd_repo.get_job_by_id(job_id)
                     
-                    if not existing:
-                        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for job_id: {job_id}, candidate_id: {candidate_id}")
-                        
-                        # Create a skeleton analysis record
-                        skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
-                        await analysis_repo.create_analysis(
+                    if job_data:
+                        # Check if re-analysis is actually needed
+                        import hashlib
+                    
+                        raw_jd = job_data.get("raw_text", "")
+                        details = job_data.get("details", {})
+                    
+                        jd_hash = hashlib.sha256(raw_jd.encode()).hexdigest() if raw_jd else None
+                        details_hash = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest() if details else None
+
+                        existing = await analysis_repo.get_analysis_for_candidate_job_resume(
                             candidate_id=candidate_id,
                             job_id=job_id,
-                            content=skeleton_content,
                             resume_id=resume_id
                         )
-                        await db.commit()
+                    
+                        needs_analysis = True
+                        if existing:
+                            # Check if JD has changed since this analysis
+                            if existing.get("jd_hash") == jd_hash and existing.get("details_hash") == details_hash:
+                                content = existing.get("content", {})
+                                if content.get("status") != "processing":
+                                    needs_analysis = False
+                                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Analysis already valid for job {job_id}. Skipping.")
+
+                        if needs_analysis:
+                            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for job_id: {job_id}, candidate_id: {candidate_id}")
                         
-                        asyncio.create_task(
-                            run_analyzer_agent(
+                            # Create a skeleton analysis record or update existing
+                            skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
+                            if existing:
+                                await analysis_repo.update_analysis(
+                                    analysis_id=uuid.UUID(existing["id"]),
+                                    content=skeleton_content,
+                                    jd_hash=jd_hash,
+                                    details_hash=details_hash
+                                )
+                                analysis_id = uuid.UUID(existing["id"])
+                            else:
+                                analysis_id = await analysis_repo.create_analysis(
+                                    candidate_id=candidate_id,
+                                    job_id=job_id,
+                                    content=skeleton_content,
+                                    resume_id=resume_id,
+                                    jd_hash=jd_hash,
+                                    details_hash=details_hash
+                                )
+                            
+                            # Pre-register the task in the database
+                            from ....repositories.processing_task_repository import ProcessingTaskRepository
+                            task_repo = ProcessingTaskRepository(db)
+                            await task_repo.create_task(
+                                task_id=analysis_id,
+                                task_type="analysis",
                                 job_id=job_id,
                                 candidate_id=candidate_id,
-                                job_data=job_data,
-                                resume_data={
-                                    "raw_text": raw_text,
-                                    "structured_data": structured_data,
-                                    "resume_id": str(resume_id)
-                                },
-                                personal_info_mismatch_question=state.get("personal_info_mismatch_question"),
-                                org_id=state.get("org_id")
+                                resume_id=resume_id,
+                                status="starting"
                             )
-                        )
-                    else:
-                        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Analysis already exists for job {job_id}")
-        
-        # 2. ALSO trigger for any other jobs this candidate is already attached to
-        async with AsyncSessionLocal() as db:
-            jd_repo = JobRepository(db)
-            analysis_repo = AnalysisRepository(db)
-            attached_jobs = await jd_repo.get_attached_jobs(candidate_id)
+                            await db.commit()
+                        
+                            asyncio.create_task(
+                                run_analyzer_agent(
+                                    job_id=job_id,
+                                    candidate_id=candidate_id,
+                                    job_data=job_data,
+                                    resume_data={
+                                        "raw_text": raw_text,
+                                        "structured_data": structured_data,
+                                        "resume_id": str(resume_id)
+                                    },
+                                    personal_info_mismatch_question=state.get("personal_info_mismatch_question"),
+                                    org_id=state.get("org_id")
+                                )
+                            )
             
-            for job in attached_jobs:
-                # Skip the job we already handled above
-                if job_id and str(job["id"]) == str(job_id):
-                    continue
-                
-                # Check if analysis already exists for this resume/job combo
-                existing = await analysis_repo.get_analysis_for_candidate_job_resume(
-                    candidate_id=candidate_id,
-                    job_id=uuid.UUID(job["id"]),
-                    resume_id=resume_id
-                )
-                
-                if not existing:
-                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for ATTACHED job_id: {job['id']}, candidate_id: {candidate_id}")
+                if is_first_resume:
+                    # 2. ALSO trigger for any other jobs this candidate is already attached to
+                    jd_repo = JobRepository(db)
+                    analysis_repo = AnalysisRepository(db)
+                    attached_jobs = await jd_repo.get_attached_jobs(candidate_id)
                     
-                    # Create a skeleton analysis record
-                    skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
-                    await analysis_repo.create_analysis(
-                        candidate_id=candidate_id,
-                        job_id=uuid.UUID(job["id"]),
-                        content=skeleton_content,
-                        resume_id=resume_id
-                    )
-                    await db.commit() # Commit each skeleton so it's visible to get_analysis
-                    
-                    asyncio.create_task(
-                        run_analyzer_agent(
-                            job_id=uuid.UUID(job["id"]),
+                    for job in attached_jobs:
+                        # Skip the job we already handled above
+                        if job_id and str(job["id"]) == str(job_id):
+                            continue
+                        
+                        # Check if re-analysis is actually needed
+                        import hashlib
+                        
+                        raw_jd = job.get("raw_text", "")
+                        details = job.get("details", {})
+                        
+                        jd_hash = hashlib.sha256(raw_jd.encode()).hexdigest() if raw_jd else None
+                        details_hash = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest() if details else None
+
+                        existing = await analysis_repo.get_analysis_for_candidate_job_resume(
                             candidate_id=candidate_id,
-                            job_data=job,
-                            resume_data={
-                                "raw_text": raw_text,
-                                "structured_data": structured_data,
-                                "resume_id": str(resume_id)
-                            },
-                            org_id=state.get("org_id")
+                            job_id=uuid.UUID(job["id"]),
+                            resume_id=resume_id
                         )
-                    )
-                else:
-                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Analysis already exists for attached job {job['id']}")
+                        
+                        needs_analysis = True
+                        if existing:
+                            # Check if JD has changed since this analysis
+                            if existing.get("jd_hash") == jd_hash and existing.get("details_hash") == details_hash:
+                                content = existing.get("content", {})
+                                if content.get("status") != "processing":
+                                    needs_analysis = False
+                                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Analysis already valid for attached job {job['id']}. Skipping.")
+
+                        if needs_analysis:
+                            logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for ATTACHED job_id: {job['id']}, candidate_id: {candidate_id}")
+                            
+                            # Create a skeleton analysis record or update existing
+                            skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
+                            if existing:
+                                await analysis_repo.update_analysis(
+                                    analysis_id=uuid.UUID(existing["id"]),
+                                    content=skeleton_content,
+                                    jd_hash=jd_hash,
+                                    details_hash=details_hash
+                                )
+                                analysis_id_attached = uuid.UUID(existing["id"])
+                            else:
+                                analysis_id_attached = await analysis_repo.create_analysis(
+                                    candidate_id=candidate_id,
+                                    job_id=uuid.UUID(job["id"]),
+                                    content=skeleton_content,
+                                    resume_id=resume_id,
+                                    jd_hash=jd_hash,
+                                    details_hash=details_hash
+                                )
+                            
+                            # Pre-register the task in the database
+                            from ....repositories.processing_task_repository import ProcessingTaskRepository
+                            task_repo = ProcessingTaskRepository(db)
+                            await task_repo.create_task(
+                                task_id=analysis_id_attached,
+                                task_type="analysis",
+                                job_id=uuid.UUID(job["id"]),
+                                candidate_id=candidate_id,
+                                resume_id=resume_id,
+                                status="starting"
+                            )
+                            await db.commit() # Commit each skeleton and task so it's visible to get_analysis
+                            
+                            asyncio.create_task(
+                                run_analyzer_agent(
+                                    job_id=uuid.UUID(job["id"]),
+                                    candidate_id=candidate_id,
+                                    job_data=job,
+                                    resume_data={
+                                        "raw_text": raw_text,
+                                        "structured_data": structured_data,
+                                        "resume_id": str(resume_id)
+                                    },
+                                    personal_info_mismatch_question=state.get("personal_info_mismatch_question"),
+                                    org_id=state.get("org_id")
+                                )
+                            )
 
         if thread_id_str != NO_THREAD_ID:
             pass

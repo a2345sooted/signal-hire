@@ -16,6 +16,9 @@ from .patch_job_note import patch_job_note
 from .delete_job_note import delete_job_note
 from .attach_candidate import attach_candidate
 from .detach_candidate import detach_candidate
+from .optimize_resume import optimize_resume
+from .get_optimized_resume import get_optimized_resume
+from .change_resume import change_attachment_resume
 
 __all__ = [
     "JobCreate",
@@ -41,4 +44,7 @@ __all__ = [
     "delete_job_note",
     "attach_candidate",
     "detach_candidate",
+    "optimize_resume",
+    "get_optimized_resume",
+    "change_attachment_resume",
 ]
