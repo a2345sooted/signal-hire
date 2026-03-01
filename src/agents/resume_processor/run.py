@@ -41,6 +41,10 @@ async def run_resume_agent(
     log_tag = "RESUME_PROCESSOR_RUN"
     logger.info(f"[{log_tag}] [{thread_id}] Starting resume agent...")
     
+    if not file_key and not raw_text:
+        logger.error(f"[{log_tag}] [{thread_id}] Neither file_key nor raw_text provided. Agent cannot proceed.")
+        return {"status": "failed", "error": "Missing input data"}
+
     # Check if this is already running
     existing_result = await handle_active_task(thread_id, _active_resume_tasks, log_tag)
     if existing_result is not None:

@@ -218,6 +218,13 @@ async def run_agent_with_retries(
             return {}  # type: ignore
         except Exception as e:
             logger.warning(f"[{log_tag}] [{thread_id}] ⚠️ Attempt {attempt} failed: {str(e)}")
+            
+            # Check for OpenAI RateLimitError (insufficient_quota or rate_limit)
+            is_rate_limit = False
+            if "insufficient_quota" in str(e).lower() or "rate_limit" in str(e).lower() or "429" in str(e):
+                is_rate_limit = True
+                logger.warning(f"[{log_tag}] [{thread_id}] Rate limit detected (OpenAI 429). Attempting retry with longer backoff.")
+
             if attempt >= max_retries:
                 logger.error(f"[{log_tag}] [{thread_id}] ❌ Agent failed after {max_retries} attempts.", exc_info=True)
                 if task_id:
@@ -230,8 +237,15 @@ async def run_agent_with_retries(
                 if error_broadcaster:
                     await error_broadcaster(e)
                 raise e
+            
             attempt += 1
-            await asyncio.sleep(0.5)
+            # Backoff: 0.5s, 1s, 2s, etc. For rate limits, use longer backoff.
+            sleep_time = 0.5 * (2 ** (attempt - 2))
+            if is_rate_limit:
+                sleep_time = max(sleep_time, 2.0 * (attempt - 1))
+            
+            logger.info(f"[{log_tag}] [{thread_id}] Sleeping for {sleep_time:.1f}s before next attempt.")
+            await asyncio.sleep(sleep_time)
             
     return {} # Should not reach here
 

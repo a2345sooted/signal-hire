@@ -22,20 +22,22 @@ async def extractor_node(state: ResumeState, config: RunnableConfig = None):
     logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Extractor Node started.")
     
     file_key = state.get("file_key")
-    if not file_key:
-        raise RuntimeError(f"[RESUME_PROCESSOR] [{clean_id_str}] No file_key in state")
+    raw_text = state.get("raw_text")
+
+    if not file_key and not raw_text:
+        raise RuntimeError(f"[RESUME_PROCESSOR] [{clean_id_str}] Neither file_key nor raw_text provided in state")
     
     original_filename = state.get("metadata", {}).get("original_filename", "resume.pdf")
     resume_id = state.get("resume_id")
     
     try:
         # 0. Check if we already have raw_text in state
-        raw_text = state.get("raw_text")
         if raw_text:
             logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Using raw_text provided in state.")
             return {"raw_text": raw_text}
 
         # 1. Get file from storage
+        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Fetching file from storage: {file_key}")
         response = await storage_service.get_file(file_key)
         file_data = await response.read()
         await response.close()
