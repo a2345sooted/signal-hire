@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter
 from src.api.jobs import (
     create_job, save_jd, get_jobs, upload_resume, get_resume,
-    get_resume_analysis, get_resume_pdf, get_job, get_analysis,
+    get_resume_analysis, get_analysis_status, get_resume_pdf, get_job, get_analysis,
     stop_resume_processing, delete_job, patch_job, add_job_note,
     patch_job_note, delete_job_note, attach_candidate, detach_candidate,
     optimize_resume, get_optimized_resume, generate_resume_diff, change_attachment_resume
@@ -60,3 +60,4 @@ router.get("/v1/resumes/{resume_id}", tags=["resumes"])(get_resume)
 router.get("/v1/resumes/{resume_id}/pdf", tags=["resumes"])(get_resume_pdf)
 router.get("/v1/resume/{resume_id}/analysis", tags=["resumes"])(get_resume_analysis)
 router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/analysis", tags=["analyses"])(get_analysis)
+router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/analysis/status", tags=["analyses"])(get_analysis_status)

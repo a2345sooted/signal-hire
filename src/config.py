@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+from typing import Optional
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -33,6 +34,10 @@ class Settings(BaseSettings):
     s3_secret_key: str = Field(alias="S3_SECRET_KEY")
     s3_region: str = Field(default="us-east-1", alias="S3_REGION")
     s3_bucket: str = Field(alias="S3_BUCKET")
+    
+    # Sentry Configuration
+    sentry_dsn: Optional[str] = Field(default=None, alias="SENTRY_DSN")
+    environment: str = Field(default="development", alias="ENVIRONMENT")
 
     @property
     def database_url_async(self) -> str:

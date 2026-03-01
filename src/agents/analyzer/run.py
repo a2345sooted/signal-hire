@@ -75,7 +75,13 @@ async def run_analyzer_agent(
         config = {"configurable": {CONFIG_THREAD_ID_KEY: thread_id}}
 
         def completion_check(state: AnalyzerState) -> bool:
-            return bool(state.get("analysis_id"))
+            # We check if analysis_id is present, which is set by save_analysis_node.
+            # If it's missing after the agent run, it means the agent failed to reach the end or failed to save.
+            analysis_id = state.get("analysis_id")
+            has_analysis_id = bool(analysis_id)
+            if not has_analysis_id:
+                 logger.warning(f"[{log_tag}] [{thread_id}] Completion check failed: analysis_id is missing from state. Value: {analysis_id} (type: {type(analysis_id)})")
+            return has_analysis_id
 
         result = await run_agent_with_retries(
             agent=get_analyzer_agent(),
@@ -89,7 +95,22 @@ async def run_analyzer_agent(
         return result
 
     except asyncio.CancelledError:
+        logger.info(f"[{log_tag}] [{thread_id}] Analyzer agent task cancelled.")
         return {"status": "cancelled", "thread_id": thread_id}
+    except Exception as e:
+        logger.error(f"[{log_tag}] [{thread_id}] Analyzer agent failed with error: {str(e)}", exc_info=True)
+        # Ensure we update the task status to failed if we have the task_id
+        from ...agents.utils import get_task_id
+        task_id = get_task_id(thread_id)
+        if task_id:
+            try:
+                async with AsyncSessionLocal() as db:
+                    repo = ProcessingTaskRepository(db)
+                    await repo.update_task(task_id, status="failed", error_message=str(e))
+                    await db.commit()
+            except Exception as db_err:
+                logger.error(f"[{log_tag}] [{thread_id}] Failed to update task status to failed: {str(db_err)}")
+        return {"status": "failed", "error": str(e), "thread_id": thread_id}
     finally:
         if _active_analysis_tasks.get(thread_id) == task:
             del _active_analysis_tasks[thread_id]

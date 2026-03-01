@@ -7,6 +7,7 @@ from .get_resume import get_resume
 from .get_resume_analysis import get_resume_analysis
 from .get_resume_pdf import get_resume_pdf
 from .get_analysis import get_analysis
+from .get_analysis_status import get_analysis_status
 from .stop_resume_processing import stop_resume_processing
 from .delete_job import delete_job
 from .get_job import get_job
@@ -36,6 +37,7 @@ __all__ = [
     "get_resume_analysis",
     "get_resume_pdf",
     "get_analysis",
+    "get_analysis_status",
     "stop_resume_processing",
     "delete_job",
     "get_job",

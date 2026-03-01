@@ -35,3 +35,4 @@ aiobotocore
 openpyxl
 pandas
 python-pptx
+sentry-sdk[fastapi]

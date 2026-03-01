@@ -161,11 +161,21 @@ async def run_agent_with_retries(
             # Ensure final_state is a dict
             if not isinstance(final_state, dict):
                  logger.error(f"[{log_tag}] [{thread_id}] Agent returned non-dict state: {type(final_state)}")
+                 # If it's a list (e.g., from messages only update), we might need to handle it,
+                 # but for now, we assume agents return the full state dict.
                  return {}  # type: ignore
 
             # Check completion if a check is provided
             if completion_check and not completion_check(final_state):  # type: ignore
                 logger.warning(f"[{log_tag}] [{thread_id}] ⚠️ Agent returned incomplete state (attempt {attempt})")
+                
+                # Log state keys to help debug why completion check failed
+                state_keys = list(final_state.keys()) if isinstance(final_state, dict) else "N/A"
+                logger.info(f"[{log_tag}] [{thread_id}] Final state keys: {state_keys}")
+                # Log analysis_id specifically for ANALYZER_RUN
+                if "analysis_id" in final_state:
+                    logger.info(f"[{log_tag}] [{thread_id}] analysis_id value: {final_state.get('analysis_id')} (type: {type(final_state.get('analysis_id'))})")
+                
                 if attempt < max_retries:
                     attempt += 1
                     await asyncio.sleep(0.5)

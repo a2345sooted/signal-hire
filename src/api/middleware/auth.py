@@ -10,6 +10,7 @@ from starlette.responses import Response, JSONResponse
 from src.database import AsyncSessionLocal
 from src.models.db_models import Organization, User, OrganizationUser, OrgRole
 from src.api.middleware.auth0 import auth0_verifier, auth0_management
+from src.api.errors import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Get Authorization header
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid Authorization header"}
-            )
+            return await self._error_response(401, "Missing or invalid Authorization header")
 
         token = auth_header.split(" ")[1]
         
@@ -38,7 +36,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             sub = payload.get("sub")
             
             if not sub:
-                raise HTTPException(status_code=401, detail="Invalid token: missing sub claim")
+                return await self._error_response(401, "Invalid token: missing sub claim")
 
             async with AsyncSessionLocal() as session:
                 # 1. Get or create user
@@ -87,9 +85,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
-            return JSONResponse(
-                status_code=401,
-                content={"detail": f"Authentication failed: {str(e)}"}
-            )
+            return await self._error_response(401, f"Authentication failed: {str(e)}")
 
         return await call_next(request)
+
+    async def _error_response(self, status_code: int, detail: str) -> JSONResponse:
+        from src.api.exception_handlers import create_rfc7807_response
+        return create_rfc7807_response(
+            status_code=status_code,
+            title="Authentication Error",
+            detail=detail,
+            error_code="AUTHENTICATION_FAILED"
+        )

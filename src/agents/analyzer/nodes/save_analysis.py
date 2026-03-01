@@ -45,19 +45,25 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
         async with AsyncSessionLocal() as db:
             repo = AnalysisRepository(db)
             
+            # Use candidate_id, job_id, and resume_id as strings for safety then cast to UUID
+            c_id = uuid.UUID(str(candidate_id))
+            j_id = uuid.UUID(str(job_id))
+            r_id = uuid.UUID(str(resume_id)) if resume_id else None
+
+            logger.info(f"[ANALYZER_AGENT] Checking for existing analysis. candidate_id={c_id}, job_id={j_id}, resume_id={r_id}")
             # Check for existing skeleton analysis
             existing = await repo.get_analysis_for_candidate_job_resume(
-                candidate_id=uuid.UUID(candidate_id),
-                job_id=uuid.UUID(job_id),
-                resume_id=uuid.UUID(resume_id) if resume_id else None
+                candidate_id=c_id,
+                job_id=j_id,
+                resume_id=r_id
             )
             
             if existing:
                 logger.info(f"[ANALYZER_AGENT] Updating existing analysis {existing['id']}")
                 await repo.update_analysis(
-                    analysis_id=uuid.UUID(existing['id']),
+                    analysis_id=uuid.UUID(str(existing['id'])),
                     content=content,
-                    resume_id=uuid.UUID(resume_id) if resume_id else None,
+                    resume_id=r_id,
                     jd_hash=jd_hash,
                     details_hash=details_hash
                 )
@@ -65,17 +71,21 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
             else:
                 logger.info("[ANALYZER_AGENT] Creating new analysis record")
                 analysis_id = await repo.create_analysis(
-                    candidate_id=uuid.UUID(candidate_id),
-                    job_id=uuid.UUID(job_id),
+                    candidate_id=c_id,
+                    job_id=j_id,
                     content=content,
-                    resume_id=uuid.UUID(resume_id) if resume_id else None,
+                    resume_id=r_id,
                     jd_hash=jd_hash,
                     details_hash=details_hash
                 )
             
             await db.commit()
             logger.info(f"[ANALYZER_AGENT] Analysis saved with ID: {analysis_id}")
-            return {"analysis_id": analysis_id}
+            # Return ONLY the updated field to merge into state
+            return {"analysis_id": uuid.UUID(str(analysis_id))}
     except Exception as e:
         logger.error(f"[ANALYZER_AGENT] Failed to save analysis: {str(e)}", exc_info=True)
+        # We must return SOMETHING that doesn't wipe the state, but we also need to signal failure
+        # to the completion check if we want it to retry. 
+        # However, returning the original state might be safer for LangGraph state merging.
         return state

@@ -9,10 +9,23 @@ from src.database import engine
 from src.config import settings
 from src.logging_config import setup_logging
 from src.agents.checkpointer import init_checkpointer, close_checkpointer
+from src.api.exception_handlers import register_exception_handlers
+from src.services.task_recovery import task_recovery_service
+import sentry_sdk
 
 # Configure logging
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Initialize Sentry
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.environment,
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
+    logger.info("Sentry initialized")
 
 @asynccontextmanager
 async def lifespan(fast_app: FastAPI):
@@ -45,15 +58,21 @@ async def lifespan(fast_app: FastAPI):
     register_optimizer_agent(optimizer_agent)
     
     logger.info("Agents compiled and registered with persistent checkpointer.")
+
+    # 3. Start task recovery service
+    await task_recovery_service.start()
     
     yield
     
     logger.info("Shutting down signal-hire-service...")
-    # Shutdown: Close database connections
+    # Shutdown: Stop task recovery service
+    await task_recovery_service.stop()
+    # Close database connections
     await engine.dispose()
     await close_checkpointer()
 
 app = FastAPI(lifespan=lifespan)
+register_exception_handlers(app)
 
 @app.get("/health")
 async def health():

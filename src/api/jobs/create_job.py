@@ -8,6 +8,7 @@ from src.repositories.job_repository import JobRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.agents.jd_processor.run import run_jd_agent
 from src.agents.utils import generate_thread_id, get_task_id
+from src.api.errors import AuthenticationError, ResourceNotFoundError, AuthorizationError
 from .models import JobCreate
 
 logger = logging.getLogger(__name__)
@@ -25,16 +26,16 @@ async def create_job(
     """
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
-        raise HTTPException(status_code=401, detail="User not authenticated")
+        raise AuthenticationError("User not authenticated")
 
     org_repo = OrganizationRepository(db)
     org = await org_repo.get_organization_by_slug(x_org_slug)
     if not org:
-        raise HTTPException(status_code=404, detail=f"Organization with slug '{x_org_slug}' not found")
+        raise ResourceNotFoundError(f"Organization with slug '{x_org_slug}' not found")
 
     role = await org_repo.get_user_role_in_org(user_id, org.id)
     if not role:
-        raise HTTPException(status_code=403, detail="User does not belong to this organization")
+        raise AuthorizationError("User does not belong to this organization")
 
     # Only OWNER, ADMIN, or RECRUITER can create a job (all roles currently have this right)
     

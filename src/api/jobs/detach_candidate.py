@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 from fastapi import Depends, Request, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,12 +48,24 @@ async def detach_candidate(
     if str(job.get("org_id")) != str(org.id):
         raise HTTPException(status_code=403, detail="Job does not belong to this organization")
 
-    # 1. Find optimized resumes to clean up storage
+    # 1. Cancel any active tasks in memory for this combination
+    # Cancel original resume analysis
+    await cancel_analyzer_agent(job_id=job_id, candidate_id=candidate_id)
+    # Cancel optimizer task
+    await cancel_optimizer_agent(job_id=job_id, candidate_id=candidate_id)
+    # Cancel optimized resume analysis (which uses f"{candidate_id}_opt" as thread seed)
+    from src.agents.utils import generate_thread_id
+    from src.agents.analyzer.run import _active_analysis_tasks
+    from src.agents.base_runner import cancel_agent_task
+    opt_analysis_thread_id = generate_thread_id("analysis", job_id, f"{candidate_id}_opt")
+    await cancel_agent_task(opt_analysis_thread_id, _active_analysis_tasks, "ANALYZER_RUN_OPT")
+
+    # 2. Find optimized resumes to clean up storage
     resume_repo = ResumeRepository(db)
     all_resumes = await resume_repo.get_resumes_by_candidate_id(candidate_id)
     optimized_resumes = [
         r for r in all_resumes 
-        if r.is_optimized and r.job_id == job_id
+        if getattr(r, "is_optimized", False) and getattr(r, "job_id", None) == job_id
     ]
 
     for res in optimized_resumes:
@@ -64,10 +77,23 @@ async def detach_candidate(
             except Exception as e:
                 logger.error(f"Failed to delete file {res.storage_key} from S3: {e}")
 
-        # Cancel any active tasks in memory
+        # Cancel any active tasks in memory specifically linked to this resume ID (if any)
         await cancel_resume_agent(job_id=job_id, resume_id=res.id)
         await cancel_analyzer_agent(job_id=job_id, candidate_id=candidate_id, resume_id=res.id)
         await cancel_optimizer_agent(job_id=job_id, candidate_id=candidate_id, resume_id=res.id)
+
+    # 3. Mark all active processing tasks for this job/candidate as cancelled in DB
+    from src.repositories.processing_task_repository import ProcessingTaskRepository
+    from src.models.db_models import ProcessingTask
+    from sqlalchemy import update
+    
+    await db.execute(
+        update(ProcessingTask)
+        .where(ProcessingTask.job_id == job_id)
+        .where(ProcessingTask.candidate_id == candidate_id)
+        .where(ProcessingTask.status.in_(["starting", "processing"]))
+        .values(status="cancelled", updated_at=datetime.now(timezone.utc))
+    )
 
     success = await job_repo.detach_candidate(
         job_id=job_id,
