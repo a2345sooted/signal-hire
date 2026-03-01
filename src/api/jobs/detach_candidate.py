@@ -8,6 +8,7 @@ from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.repositories.resume_repository import ResumeRepository
+from src.repositories.analysis_repository import AnalysisRepository
 from src.services.storage import storage_service
 from src.agents.resume_processor.run import cancel_resume_agent
 from src.agents.analyzer.run import cancel_analyzer_agent
@@ -76,6 +77,13 @@ async def detach_candidate(
     if not success:
         raise HTTPException(status_code=404, detail="Attachment not found")
         
+    # 3. Remove any analyses for this combination
+    analysis_repo = AnalysisRepository(db)
+    await analysis_repo.delete_analyses_for_candidate_job(
+        candidate_id=candidate_id,
+        job_id=job_id
+    )
+    
     await db.commit()
     
     return {

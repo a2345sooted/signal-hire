@@ -6,6 +6,8 @@ from src.database import get_db
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
 
+from src.api.candidates.models import CandidateListBrief
+
 async def get_candidates(
     request: Request,
     x_org_slug: Annotated[str, Header()],
@@ -30,7 +32,10 @@ async def get_candidates(
         raise HTTPException(status_code=403, detail="User does not have access to this organization")
 
     candidate_repo = CandidateRepository(db)
-    candidates = await candidate_repo.get_candidates(org.id)
+    candidates_data = await candidate_repo.get_candidates(org.id)
+    
+    # Validate with Pydantic model
+    candidates = [CandidateListBrief.model_validate(c) for c in candidates_data]
     
     return {
         "success": True,

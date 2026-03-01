@@ -25,11 +25,23 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     
     resume_data = state["resume_data"]
     job_data = state["job_data"]
+    candidate_location = state.get("candidate_location")
+    candidate_notes = state.get("candidate_notes", [])
     
     resume_text = resume_data.get('raw_text') or str(resume_data.get('structured_data', 'No resume data available'))
     job_text = job_data.get('raw_text', 'No JD text available')
+    
+    candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
+    if candidate_notes:
+        candidate_info += "Notes:\n"
+        for note in candidate_notes:
+            content = note.get('content', '')
+            candidate_info += f"- {content}\n"
 
     prompt = f"""You are an expert ATS (Applicant Tracking System) Analyzer. Your task is to perform a rigorous, objective, and detailed comparison between a Resume and a Job Description.
+    
+    CANDIDATE INFO:
+    {candidate_info}
 
     JOB DESCRIPTION:
     {job_text}
@@ -52,10 +64,12 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     Consistency is paramount. Treat every requirement in the JD as a checklist item.
     """
 
+    logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Identifier Node: extracted texts. Starting LLM call...")
+    
     try:
         result = await structured_identifier.ainvoke(prompt)
         
-        logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Identifier Node completed.")
+        logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Identifier Node: LLM call completed.")
         
         return {
             "major_hits": result.major_hits,

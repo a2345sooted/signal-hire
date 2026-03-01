@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import get_db
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
+from src.repositories.analysis_repository import AnalysisRepository
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,11 @@ async def delete_candidate(
     
     logger.info(f"Deleting candidate: {candidate_id} for org: {org.slug}")
     
+    # 1. Remove all analyses for this candidate
+    analysis_repo = AnalysisRepository(db)
+    await analysis_repo.delete_analyses_by_candidate_id(candidate_id)
+    
+    # 2. Delete the candidate record
     deleted = await repo.delete_candidate(candidate_id)
     await db.commit()
     

@@ -99,6 +99,12 @@ async def change_attachment_resume(
     if needs_analysis:
         logger.info(f"Triggering analysis for candidate {candidate_id} and job {job_id} using NEW resume {resume_id}")
         
+        # Get candidate notes and location
+        candidate_repo = CandidateRepository(db)
+        candidate = await candidate_repo.get_candidate_by_id(candidate_id)
+        candidate_notes = candidate.get("notes", []) if candidate else []
+        candidate_location = candidate.get("location") if candidate else None
+
         # Create a skeleton analysis record or update existing one
         skeleton_content = {"status": "processing", "message": "New resume attached. Re-analyzing..."}
         
@@ -148,6 +154,8 @@ async def change_attachment_resume(
                 "structured_data": resume["structured_data"],
                 "resume_id": str(resume_id)
             },
+            candidate_notes=candidate_notes,
+            candidate_location=candidate_location,
             org_id=org.id
         )
     

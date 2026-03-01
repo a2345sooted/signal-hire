@@ -231,23 +231,54 @@ class CandidateRepository:
         }
 
     async def get_candidates(self, org_id: uuid.UUID) -> list[Dict[str, Any]]:
-        """Retrieve all candidates for an organization"""
+        """Retrieve all candidates for an organization with their attached jobs and latest scores"""
+        from ..models.db_models import Job, JobAttachment, Analysis
+        
+        # 1. Fetch basic candidate info
         result = await self.session.execute(
-            select(Candidate).where(Candidate.org_id == org_id)
+            select(Candidate).where(Candidate.org_id == org_id).order_by(Candidate.created_at.desc())
         )
         candidates = result.scalars().all()
         
-        return [
-            {
+        formatted_candidates = []
+        for candidate in candidates:
+            # 2. Get attached jobs and their latest analysis score
+            attached_query = (
+                select(Job.id, Job.title, Analysis.content)
+                .join(JobAttachment, Job.id == JobAttachment.job_id)
+                .outerjoin(Analysis, (Analysis.job_id == Job.id) & (Analysis.candidate_id == candidate.id))
+                .where(JobAttachment.candidate_id == candidate.id)
+                .order_by(Analysis.created_at.desc())
+            )
+            attached_result = await self.session.execute(attached_query)
+            attached_rows = attached_result.all()
+            
+            # Process attached jobs to get unique jobs with their latest score
+            seen_jobs = set()
+            attached_jobs = []
+            for row in attached_rows:
+                if row.id in seen_jobs:
+                    continue
+                seen_jobs.add(row.id)
+                
+                score = row.content.get("score") if row.content else None
+                attached_jobs.append({
+                    "id": str(row.id),
+                    "title": row.title,
+                    "score": score
+                })
+            
+            formatted_candidates.append({
                 "id": str(candidate.id),
                 "name": candidate.name,
                 "email": candidate.email,
                 "phone": candidate.phone,
                 "location": candidate.location,
-                "created_at": candidate.created_at.isoformat() if candidate.created_at else None
-            }
-            for candidate in candidates
-        ]
+                "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
+                "attached_jobs": attached_jobs
+            })
+            
+        return formatted_candidates
     async def get_or_create_candidate_by_name(self, name: str, email: Optional[str] = None, org_id: Optional[uuid.UUID] = None) -> uuid.UUID:
         """Simple get or create by name/email for now"""
         if email:

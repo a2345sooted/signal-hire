@@ -23,11 +23,13 @@ class AnalyzerState(BaseAgentState):
     # Input
     resume_data: Dict[str, Any]
     job_data: Dict[str, Any]
+    candidate_notes: Optional[List[Dict[str, Any]]] = None
+    candidate_location: Optional[str] = None
+    candidate_experience_summary: Optional[str] = None # Added for more context if available
     
     # Analysis results
     score: Optional[int]
     score_breakdown: Optional[ScoreBreakdown]
-    scoring_reasoning: Optional[str]
     major_hits: List[str]
     minor_hits: List[str]
     major_gaps: List[str]

@@ -8,6 +8,7 @@ from src.agents.resume_processor.run import cancel_resume_agent
 from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.resume_repository import ResumeRepository
+from src.repositories.analysis_repository import AnalysisRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.services.storage import storage_service
 
@@ -64,7 +65,11 @@ async def delete_job(
                 logger.error(f"Failed to delete file for resume {resume.id}: {e}")
         await resume_repo.delete_resume(resume.id)
     
-    # 3. Delete the job record
+    # 3. Delete all analyses associated with this job
+    analysis_repo = AnalysisRepository(db)
+    await analysis_repo.delete_analyses_by_job_id(job_id)
+    
+    # 4. Delete the job record
     job_repo = JobRepository(db)
     logger.info(f"Checking for job record {job_id} to delete")
     deleted = await job_repo.delete_job(job_id)

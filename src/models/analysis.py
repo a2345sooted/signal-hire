@@ -40,7 +40,6 @@ class DeterministicScoringInput(BaseModel):
 class ScoringSchema(BaseModel):
     score: int = Field(..., description="Overall match score from 0 to 100")
     breakdown: ScoreBreakdown = Field(..., description="Categorical breakdown of the score")
-    reasoning: str = Field(..., description="Detailed explanation of the mathematical calculation and reasoning")
 
 class AnalysisResultSchema(BaseModel):
     score: int = Field(..., description="Overall match score from 0 to 100")

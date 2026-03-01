@@ -5,10 +5,13 @@ from langchain_core.runnables import RunnableConfig
 from ....agents.optimizer.state import OptimizerState
 from ....database import AsyncSessionLocal
 from ....repositories.resume_repository import ResumeRepository
+from ....repositories.analysis_repository import AnalysisRepository
+from ....repositories.processing_task_repository import ProcessingTaskRepository
+from ....agents.analyzer.run import run_analyzer_agent
+from ....agents.utils import strip_id_prefix, get_thread_id, generate_thread_id, get_task_id
 from ....services.embedding import EmbeddingService
 from ....services.pdf import PDFGenerator
 from ....services.storage import storage_service
-from ....agents.utils import strip_id_prefix, get_thread_id
 
 logger = logging.getLogger(__name__)
 embedding_service = EmbeddingService()
@@ -125,6 +128,74 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
             
             await db.commit()
             logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Optimized resume saved with ID: {new_resume_id} and storage_key: {storage_key}")
+
+            # TRIGGER NEW ANALYSIS FOR THE OPTIMIZED RESUME
+            try:
+                # Pre-register the task in the database for UI tracking
+                # We use a unique thread_id for the optimized analysis
+                analysis_thread_id = generate_thread_id("analysis", uuid.UUID(job_id), f"{candidate_id}_opt")
+                analysis_task_id = get_task_id(analysis_thread_id)
+
+                # Fetch candidate notes/location for analysis context
+                from ....repositories.candidate_repository import CandidateRepository
+                candidate_repo = CandidateRepository(db)
+                candidate_data = await candidate_repo.get_candidate_by_id(uuid.UUID(candidate_id))
+                candidate_notes = candidate_data.get("notes", []) if candidate_data else []
+                candidate_location = candidate_data.get("location") if candidate_data else None
+
+                # Calculate hashes for JD and Details
+                job_data = state.get("job_data", {})
+                raw_jd = job_data.get("raw_text", "")
+                details = job_data.get("details", {})
+                import hashlib
+                jd_hash = hashlib.sha256(raw_jd.encode()).hexdigest() if raw_jd else None
+                details_hash = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest() if details else None
+
+                # Create processing task record
+                task_repo = ProcessingTaskRepository(db)
+                await task_repo.create_task(
+                    task_id=analysis_task_id,
+                    task_type="analysis",
+                    job_id=uuid.UUID(job_id),
+                    candidate_id=uuid.UUID(candidate_id),
+                    resume_id=new_resume_id,
+                    status="starting"
+                )
+
+                # Create initial analysis record
+                analysis_repo = AnalysisRepository(db)
+                skeleton_content = {"status": "processing", "message": "Analyzing optimized resume..."}
+                await analysis_repo.create_analysis(
+                    candidate_id=uuid.UUID(candidate_id),
+                    job_id=uuid.UUID(job_id),
+                    content=skeleton_content,
+                    resume_id=new_resume_id,
+                    jd_hash=jd_hash,
+                    details_hash=details_hash
+                )
+                await db.commit()
+
+                logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Triggering analysis for optimized resume {new_resume_id}")
+                
+                # Start the analyzer agent
+                # Note: This is already running in a background context (via the optimizer's background task)
+                import asyncio
+                asyncio.create_task(run_analyzer_agent(
+                    job_id=uuid.UUID(job_id),
+                    candidate_id=uuid.UUID(candidate_id),
+                    job_data=job_data,
+                    resume_data={
+                        "raw_text": raw_text,
+                        "structured_data": structured_data,
+                        "resume_id": str(new_resume_id)
+                    },
+                    candidate_notes=candidate_notes,
+                    candidate_location=candidate_location,
+                    thread_id_id=f"{candidate_id}_opt", # Use the same stable identifier
+                    org_id=org_id
+                ))
+            except Exception as analysis_trigger_error:
+                logger.error(f"[OPTIMIZER_AGENT] [{clean_id_str}] Failed to trigger analysis for optimized resume: {str(analysis_trigger_error)}")
             
             return {
                 "new_resume_id": str(new_resume_id),

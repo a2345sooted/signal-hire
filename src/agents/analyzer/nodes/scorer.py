@@ -74,7 +74,7 @@ def calculate_deterministic_score(input_data: DeterministicScoringInput) -> Scor
         f"Total Deterministic Score: {total_score}/100"
     )
 
-    return ScoringSchema(score=total_score, breakdown=breakdown, reasoning=reasoning)
+    return ScoringSchema(score=total_score, breakdown=breakdown)
 
 async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     """Calculates a deterministic score based on identified matches and gaps."""
@@ -100,8 +100,20 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     minor_hits = state.get("minor_hits", [])
     major_gaps = state.get("major_gaps", [])
     minor_gaps = state.get("minor_gaps", [])
+    candidate_location = state.get("candidate_location")
+    candidate_notes = state.get("candidate_notes", [])
+    
+    candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
+    if candidate_notes:
+        candidate_info += "Notes:\n"
+        for note in candidate_notes:
+            content = note.get('content', '')
+            candidate_info += f"- {content}\n"
     
     prompt = f"""You are a precise Scoring Analysis Agent for an ATS. Your objective is to extract the correct inputs for the deterministic scoring tool based on a qualitative analysis of hits and gaps.
+
+    ### CANDIDATE INFO:
+    {candidate_info}
 
     ### INPUT DATA:
     - **MAJOR HITS**: {major_hits}
@@ -138,7 +150,8 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
        - **Bonus/Penalty**: Quantified achievements (+1), Typos (-3), Unexplained gaps > 1yr (-3).
 
     ### TASK:
-    Analyze the hits and gaps provided and call the `calculate_deterministic_score` tool with the appropriate arguments. 
+    1. Analyze the hits, gaps, and candidate info provided and call the `calculate_deterministic_score` tool with the appropriate arguments. 
+    
     Ensure every deduction and point awarded is justified by the input data.
     """
 
@@ -147,8 +160,9 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     
     for attempt in range(max_retries):
         try:
-            logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Scorer attempt {attempt + 1}")
+            logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Scorer Node: starting LLM call (attempt {attempt + 1})...")
             response = await llm_with_tool.ainvoke(messages)
+            logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Scorer Node: LLM call completed.")
             
             if not response.tool_calls:
                 logger.warning(f"[ANALYZER_AGENT] [{clean_id_str}] No tool calls returned by LLM.")
@@ -171,8 +185,6 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
                 return {
                     "score": result.score,
                     "score_breakdown": result.breakdown.model_dump(),
-                    "scoring_reasoning": result.reasoning,
-                    "messages": state.get("messages", []) + [f"Analysis complete. Score: {result.score}%"],
                     "metadata": {
                         **state.get("metadata", {}),
                         "status": "scored"

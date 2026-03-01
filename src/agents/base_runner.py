@@ -126,6 +126,15 @@ async def run_agent_with_retries(
                         # Since it's finished, ainvoke(None) is a no-op.
                         # We force a re-run from the start by using initial_state.
                         logger.info(f"[{log_tag}] [{thread_id}] Agent state is already finished and valid, but re-triggered. Forcing restart to ensure DB consistency.")
+                        
+                        if task_id:
+                            try:
+                                async with AsyncSessionLocal() as db:
+                                    repo = ProcessingTaskRepository(db)
+                                    await repo.update_task(task_id, status="processing")
+                                    await db.commit()
+                            except: pass
+
                         final_state = await agent.ainvoke(initial_state, config=config)
                     else:
                         logger.info(f"[{log_tag}] [{thread_id}] Found existing state in checkpointer. Using it to resume.")

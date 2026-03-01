@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from ...agents.registry import get_analyzer_agent
 from ...agents.utils import generate_thread_id
@@ -21,6 +21,8 @@ async def run_analyzer_agent(
     candidate_id: uuid.UUID,
     job_data: Dict[str, Any],
     resume_data: Dict[str, Any],
+    candidate_notes: Optional[List[Dict[str, Any]]] = None,
+    candidate_location: Optional[str] = None,
     thread_id_id: Optional[str] = None,
     personal_info_mismatch_question: Optional[str] = None,
     org_id: Optional[uuid.UUID] = None
@@ -56,10 +58,11 @@ async def run_analyzer_agent(
             "org_id": org_id,
             "resume_data": resume_data,
             "job_data": job_data,
+            "candidate_notes": candidate_notes,
+            "candidate_location": candidate_location,
             "analysis_id": None,
             "score": None,
             "score_breakdown": None,
-            "scoring_reasoning": None,
             "major_hits": [],
             "minor_hits": [],
             "major_gaps": [],

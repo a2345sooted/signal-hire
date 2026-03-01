@@ -46,6 +46,16 @@ class JobBrief(BaseModel):
     analysis_score: Optional[int] = None
     is_analysis_processing: bool = False
     attached_resume_id: Optional[uuid.UUID] = None
+    score: Optional[int] = None # Added for CandidateListBrief
+
+class CandidateListBrief(BaseModel):
+    id: uuid.UUID
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    created_at: Optional[datetime] = None
+    attached_jobs: list[JobBrief] = []
 
 class CandidateResponse(BaseModel):
     id: uuid.UUID

@@ -34,12 +34,11 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
     content = {
         "score": state.get("score"),
         "score_breakdown": state.get("score_breakdown"),
-        "scoring_reasoning": state.get("scoring_reasoning"),
         "major_hits": state.get("major_hits"),
         "minor_hits": state.get("minor_hits"),
         "major_gaps": state.get("major_gaps"),
         "minor_gaps": state.get("minor_gaps"),
-        "message": state.get("messages", [""])[0] if state.get("messages") else "",
+        "message": state.get("messages", [""])[-1] if state.get("messages") else "",
     }
 
     try:

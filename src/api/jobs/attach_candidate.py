@@ -88,6 +88,10 @@ async def attach_candidate(
     )
     
     if current_resume_obj:
+        # Get candidate notes and location
+        candidate_notes = await candidate_repo.get_notes(candidate_id)
+        candidate_location = candidate.location if hasattr(candidate, 'location') else None
+        
         analysis_repo = AnalysisRepository(db)
         existing_analysis = await analysis_repo.get_analysis_for_candidate_job_resume(
             candidate_id=candidate_id,
@@ -166,6 +170,8 @@ async def attach_candidate(
                     "structured_data": current_resume_obj.structured_data,
                     "resume_id": str(resume_id)
                 },
+                candidate_notes=candidate_notes,
+                candidate_location=candidate_location,
                 org_id=org.id
             )
     else:

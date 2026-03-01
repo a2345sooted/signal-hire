@@ -157,3 +157,47 @@ class AnalysisRepository:
             "details_hash": analysis.details_hash,
             "created_at": analysis.created_at.isoformat() if analysis.created_at else None
         }
+
+    async def delete_analyses_for_candidate_job(
+        self,
+        candidate_id: uuid.UUID,
+        job_id: uuid.UUID
+    ) -> bool:
+        """Delete all analyses for a specific candidate and job"""
+        from sqlalchemy import delete
+        
+        result = await self.session.execute(
+            delete(Analysis)
+            .where(Analysis.candidate_id == candidate_id)
+            .where(Analysis.job_id == job_id)
+        )
+        await self.session.flush()
+        return result.rowcount > 0
+
+    async def delete_analyses_by_candidate_id(
+        self,
+        candidate_id: uuid.UUID
+    ) -> bool:
+        """Delete all analyses for a specific candidate across all jobs"""
+        from sqlalchemy import delete
+        
+        result = await self.session.execute(
+            delete(Analysis)
+            .where(Analysis.candidate_id == candidate_id)
+        )
+        await self.session.flush()
+        return result.rowcount > 0
+
+    async def delete_analyses_by_job_id(
+        self,
+        job_id: uuid.UUID
+    ) -> bool:
+        """Delete all analyses for a specific job across all candidates"""
+        from sqlalchemy import delete
+        
+        result = await self.session.execute(
+            delete(Analysis)
+            .where(Analysis.job_id == job_id)
+        )
+        await self.session.flush()
+        return result.rowcount > 0

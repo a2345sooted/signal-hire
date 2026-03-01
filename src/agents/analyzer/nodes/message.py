@@ -15,23 +15,32 @@ async def generate_analysis_summary(
     major_hits: list, 
     minor_hits: list, 
     major_gaps: list, 
+    candidate_location: str = None,
+    candidate_notes: list = None,
     thread_id: str = NO_THREAD_ID
 ) -> str:
     """
-    Generates a concise summary of the analysis with a targeted question about a gap.
+    Generates a professional markdown write up of the overall impression of this candidate for this job.
     """
     logger.info(f"[ANALYZER] [{thread_id}] Standalone analysis summary generation started.")
     start_time = time.time()
     
     # Take a few examples from each to provide context to the LLM
-    hits_sample = (major_hits + minor_hits)[:4]
-    gaps_sample = major_gaps[:3]
+    hits_sample = (major_hits + minor_hits)
+    gaps_sample = major_gaps
+    
+    candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
+    if candidate_notes:
+        candidate_info += "Notes:\n"
+        for note in candidate_notes:
+            content = note.get('content', '')
+            candidate_info += f"- {content}\n"
     
     # Use the same structure and role/constraints format as respond.py for better results
     system_prompt = (
         "# ROLE\n"
         "You are Aline, a professional recruitment consultant at Signal-Hire. "
-        "Your goal is to provide a hiring manager with a clear, objective analysis of how well a candidate's resume matches a specific job description. "
+        "Your goal is to provide a hiring manager with a clear, objective, and professional markdown write up of the overall impression of this candidate for this job. "
         "Your tone should be professional, analytical, and direct. "
         "Be pragmatic and highlight both strengths and critical missing requirements. "
         "Your insights should help the hiring manager decide whether to proceed with this candidate.\n\n"
@@ -42,13 +51,16 @@ async def generate_analysis_summary(
         "4. End with a single, targeted, actionable recommendation or a question for the hiring manager to consider during an interview.\n"
         "5. Use the exact ATS Score provided in the input. Do not make up a different score.\n\n"
         "# RESPONSE CONTENT\n"
-        "Your response should include:\n"
-        "- The Match Score (e.g., 85/100).\n"
-        "- A summary of why the candidate is a good fit (Key Matches).\n"
-        "- A summary of critical Gaps or concerns the hiring manager should be aware of."
+        "Your response should be a structured markdown write-up including:\n"
+        "- **Overall Impression**: A 1-2 paragraph professional summary of the candidate's suitability for the role.\n"
+        "- **The Match Score**: (e.g., 85/100).\n"
+        "- **Key Strengths/Matches**: Why the candidate is a good fit.\n"
+        "- **Critical Gaps/Concerns**: Important requirements or skills that are missing.\n"
+        "- **Conclusion/Recommendation**: A brief final thought on whether to interview or not."
     )
 
-    user_message = f"""Please analyze this candidate for the hiring manager:
+    user_message = f"""Please provide an overall impression for this candidate:
+- **CANDIDATE INFO**: {candidate_info}
 - **Match Score**: {score}/100
 - **Key Matches**: {hits_sample}
 - **Critical Gaps**: {gaps_sample}"""
@@ -62,7 +74,9 @@ async def generate_analysis_summary(
     ]
 
     try:
+        logger.info(f"[ANALYZER] [{thread_id}] Analysis summary LLM call started.")
         response = await llm.ainvoke(messages)
+        logger.info(f"[ANALYZER] [{thread_id}] Analysis summary LLM call completed.")
         duration = time.time() - start_time
         logger.info(f"[ANALYZER] [{thread_id}] Standalone analysis summary generation completed in {duration:.2f}s")
         return response.content.strip()
@@ -87,13 +101,17 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
     minor_hits = state.get("minor_hits", [])
     major_gaps = state.get("major_gaps", [])
     minor_gaps = state.get("minor_gaps", [])
+    candidate_location = state.get("candidate_location")
+    candidate_notes = state.get("candidate_notes", [])
 
     try:
         summary_msg = await generate_analysis_summary(
-            score,
-            major_hits,
-            minor_hits,
-            major_gaps,
+            score=score,
+            major_hits=major_hits,
+            minor_hits=minor_hits,
+            major_gaps=major_gaps,
+            candidate_location=candidate_location,
+            candidate_notes=candidate_notes,
             thread_id=clean_id_str
         )
         
