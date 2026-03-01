@@ -285,7 +285,7 @@ class OrganizationRepository:
         stmt_member = select(OrganizationUser).where(
             OrganizationUser.org_id == invite.org_id,
             OrganizationUser.user_id == user_id
-        )
+        ).limit(1)
         result_member = await self.session.execute(stmt_member)
         if result_member.scalar_one_or_none():
             logger.info(f"User {user_id} is already a member of org {invite.org_id}")

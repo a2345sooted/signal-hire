@@ -74,9 +74,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user_id = user.id
                 
                 # Check for organizations only to set org_id if they belong to one
+                # Note: A user can belong to multiple organizations.
+                # If they do, we'll need a better way to handle the 'current' organization.
+                # For now, we'll just pick the first one to avoid crashes.
                 result = await session.execute(
                     select(OrganizationUser)
                     .where(OrganizationUser.user_id == user.id)
+                    .limit(1)
                 )
                 org_user = result.scalar_one_or_none()
                 
