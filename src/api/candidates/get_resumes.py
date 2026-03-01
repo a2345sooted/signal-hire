@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Annotated
+from typing import Annotated, Optional
 from fastapi import Depends, Request, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +17,7 @@ async def get_resumes(
     request: Request,
     candidate_id: uuid.UUID,
     x_org_slug: Annotated[str, Header()],
+    job_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -53,6 +54,11 @@ async def get_resumes(
     # Generate signed URLs for each resume
     formatted_resumes = []
     for r in resumes:
+        # Filter: only return original resumes or optimized ones for the specified job
+        if r.is_optimized:
+            if not job_id or str(r.job_id) != str(job_id):
+                continue
+        
         signed_url = await storage_service.get_presigned_url(r.storage_key) if r.storage_key else None
         
         # Determine status: if structured_data is missing/empty, it's either processing or pending.

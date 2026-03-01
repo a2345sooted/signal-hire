@@ -1,0 +1,1 @@
+ALTER TABLE resumes ADD COLUMN parent_id UUID REFERENCES resumes(id) ON DELETE SET NULL;

@@ -6,6 +6,7 @@ from fastapi import Form, Depends, BackgroundTasks, Request, HTTPException, Head
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.jd_processor.run import run_jd_agent
+from src.agents.utils import generate_thread_id, get_task_id
 from src.database import get_db
 from src.repositories.organization_repository import OrganizationRepository
 
@@ -42,6 +43,22 @@ async def save_jd(
     
     logger.info(f"Generated temporary job_id: {job_id}. Starting agent...")
     
+    # Pre-register the task in the database so that immediate GET requests see SIGNAL_PROCESSING
+    from src.repositories.processing_task_repository import ProcessingTaskRepository
+    task_repo = ProcessingTaskRepository(db)
+    
+    # Use stable task_id derived from thread_id
+    thread_id = generate_thread_id("jd", job_id)
+    task_id = get_task_id(thread_id)
+    
+    await task_repo.create_task(
+        task_id=task_id,
+        task_type="jd",
+        job_id=job_id,
+        status="starting"
+    )
+    await db.commit()
+
     # Kick off the agent in the background
     background_tasks.add_task(run_jd_agent, raw_text=job_description, job_id=job_id, org_id=org.id)
     

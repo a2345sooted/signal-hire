@@ -41,6 +41,22 @@ async def get_optimized_resume(
             optimized_resume = matching[-1]
 
     if optimized_resume:
+        # Generate signed URL if storage_key is present
+        from src.services.storage import storage_service
+        signed_url = None
+        storage_key = getattr(optimized_resume, "storage_key", None)
+        if storage_key:
+            try:
+                if await storage_service.file_exists(storage_key):
+                    signed_url = await storage_service.get_presigned_url(storage_key)
+                else:
+                    logger.warning(f"Optimized resume {optimized_resume.id} found in DB but missing from storage: {storage_key}.")
+                    optimized_resume = None # Treat as not found if storage is missing
+            except Exception as e:
+                logger.error(f"Error checking storage for optimized resume {optimized_resume.id}: {e}")
+                signed_url = None
+
+    if optimized_resume:
         return {
             "success": True,
             "status": "completed",
@@ -51,23 +67,27 @@ async def get_optimized_resume(
                 "is_optimized": optimized_resume.is_optimized,
                 "job_id": str(optimized_resume.job_id) if optimized_resume.job_id else None,
                 "candidate_id": str(optimized_resume.candidate_id) if optimized_resume.candidate_id else None,
-                "created_at": optimized_resume.created_at.isoformat() if optimized_resume.created_at else None
+                "created_at": optimized_resume.created_at.isoformat() if optimized_resume.created_at else None,
+                "signed_url": signed_url
             }
         }
 
     # If no optimized resume found, check if it's still processing or failed
     from src.repositories.processing_task_repository import ProcessingTaskRepository
-    task_repo = ProcessingTaskRepository(db)
-    # Using candidate_id as task_id for optimizer since it's per candidate-job
-    # (Matches what's done in optimize_resume.py:93)
-    from sqlalchemy.future import select
+    from src.agents.utils import generate_thread_id, get_task_id
     from src.models.db_models import ProcessingTask
+    from sqlalchemy.future import select
+
+    # Generate the stable task_id used in optimize_resume.py
+    thread_id = generate_thread_id("optimizer", job_id, str(candidate_id))
+    task_id = get_task_id(thread_id)
     
     result = await db.execute(
         select(ProcessingTask)
-        .where(ProcessingTask.id == candidate_id)
+        .where(ProcessingTask.id == task_id)
         .where(ProcessingTask.task_type == "optimizer")
         .where(ProcessingTask.job_id == job_id)
+        .where(ProcessingTask.candidate_id == candidate_id)
     )
     task = result.scalar_one_or_none()
     

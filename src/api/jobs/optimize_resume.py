@@ -12,6 +12,7 @@ from src.repositories.resume_repository import ResumeRepository
 from src.repositories.analysis_repository import AnalysisRepository
 from src.repositories.processing_task_repository import ProcessingTaskRepository
 from src.agents.optimizer.run import run_optimizer_agent
+from src.agents.utils import generate_thread_id, get_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,12 @@ async def optimize_resume(
 
     # Pre-register the optimizer task
     task_repo = ProcessingTaskRepository(db)
-    # Using candidate_id as task_id for optimizer since it's per candidate-job
-    # Actually, base_runner uses extract_uuid_from_thread_id which takes the last UUID.
-    # thread_id will be optimizer_{job_id}_{candidate_id}
-    # So task_id should be candidate_id.
+    # Generate stable task_id from thread_id to avoid clashes
+    thread_id = generate_thread_id("optimizer", job_id, str(candidate_id))
+    task_id = get_task_id(thread_id)
     
     await task_repo.create_task(
-        task_id=candidate_id,
+        task_id=task_id,
         task_type="optimizer",
         job_id=job_id,
         candidate_id=candidate_id,

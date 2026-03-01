@@ -30,6 +30,7 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
     candidate_id = state.get("candidate_id")
     job_id = state.get("job_id")
     org_id = state.get("org_id")
+    parent_resume_id = state.get("resume_id")
     
     # Convert Pydantic model to dict
     structured_data = optimized_resume.model_dump()
@@ -61,9 +62,10 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
         async with AsyncSessionLocal() as db:
             repo = ResumeRepository(db)
             
-            # CHECK FOR EXISTING OPTIMIZED RESUME FOR THIS JOB/CANDIDATE
-            all_resumes = await repo.get_resumes_by_candidate_id(uuid.UUID(candidate_id))
-            existing_optimized = next((r for r in all_resumes if r.is_optimized and str(r.job_id) == str(job_id)), None)
+            # Pre-generate a resume ID so we can use it in the storage key
+            new_resume_id = uuid.uuid4()
+            # Follow new convention for optimized resumes: candidates/:candidateId/resumes/optimized/:resumeId
+            storage_key = f"candidates/{candidate_id}/resumes/optimized/{new_resume_id}"
             
             # Create a unique filename for the optimized resume
             original_resume_data = state.get("resume_data", {})
@@ -72,16 +74,6 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
             ext = "pdf" # We'll eventually generate a PDF for it
             optimized_filename = f"{base_name}_optimized.{ext}"
             unique_filename = await repo.get_unique_filename(optimized_filename)
-            
-            if existing_optimized:
-                logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Found existing optimized resume {existing_optimized.id}. Overwriting.")
-                new_resume_id = existing_optimized.id
-                storage_key = existing_optimized.storage_key or f"candidates/{candidate_id}/resumes/optimized/{new_resume_id}"
-            else:
-                # Pre-generate a resume ID so we can use it in the storage key
-                new_resume_id = uuid.uuid4()
-                # Follow new convention for optimized resumes: candidates/:candidateId/resumes/optimized/:resumeId
-                storage_key = f"candidates/{candidate_id}/resumes/optimized/{new_resume_id}"
             
             # Generate PDF from structured data
             logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Generating PDF for optimized resume...")
@@ -99,31 +91,19 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
                 # We still continue saving the record even if PDF fails, 
                 # though it's better if it succeeds.
             
-            if existing_optimized:
-                await repo.update_resume(
-                    resume_id=new_resume_id,
-                    raw_text=raw_text,
-                    structured_data=structured_data,
-                    embedding=legacy_embedding,
-                    storage_key=storage_key,
-                    job_id=uuid.UUID(job_id),
-                    candidate_id=uuid.UUID(candidate_id),
-                    is_generated=True,
-                    is_optimized=True
-                )
-            else:
-                await repo.create_resume_with_id(
-                    resume_id=new_resume_id,
-                    original_filename=unique_filename,
-                    raw_text=raw_text,
-                    structured_data=structured_data,
-                    embedding=legacy_embedding,
-                    storage_key=storage_key,
-                    job_id=uuid.UUID(job_id),
-                    candidate_id=uuid.UUID(candidate_id),
-                    is_generated=True,
-                    is_optimized=True
-                )
+            await repo.create_resume_with_id(
+                resume_id=new_resume_id,
+                original_filename=unique_filename,
+                raw_text=raw_text,
+                structured_data=structured_data,
+                embedding=legacy_embedding,
+                storage_key=storage_key,
+                job_id=uuid.UUID(job_id),
+                candidate_id=uuid.UUID(candidate_id),
+                is_generated=True,
+                is_optimized=True,
+                parent_id=uuid.UUID(parent_resume_id) if parent_resume_id else None
+            )
             
             # Add chunk embeddings
             from sqlalchemy import delete

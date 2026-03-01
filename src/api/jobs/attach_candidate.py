@@ -11,6 +11,7 @@ from src.repositories.organization_repository import OrganizationRepository
 from src.repositories.resume_repository import ResumeRepository
 from src.repositories.analysis_repository import AnalysisRepository
 from src.agents.analyzer.run import run_analyzer_agent
+from src.agents.utils import generate_thread_id, get_task_id
 
 logger = logging.getLogger(__name__)
 
@@ -140,8 +141,13 @@ async def attach_candidate(
             # Pre-register the task in the database
             from src.repositories.processing_task_repository import ProcessingTaskRepository
             task_repo = ProcessingTaskRepository(db)
+            
+            # Use stable task_id derived from thread_id
+            thread_id = generate_thread_id("analysis", job_id, str(candidate_id))
+            task_id = get_task_id(thread_id)
+            
             await task_repo.create_task(
-                task_id=analysis_id, # For analysis tasks, task_id is the analysis_id
+                task_id=task_id,
                 task_type="analysis",
                 job_id=job_id,
                 candidate_id=candidate_id,

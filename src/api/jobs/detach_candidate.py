@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.organization_repository import OrganizationRepository
+from src.repositories.resume_repository import ResumeRepository
+from src.services.storage import storage_service
+from src.agents.resume_processor.run import cancel_resume_agent
+from src.agents.analyzer.run import cancel_analyzer_agent
+from src.agents.optimizer.run import cancel_optimizer_agent
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,28 @@ async def detach_candidate(
 
     if str(job.get("org_id")) != str(org.id):
         raise HTTPException(status_code=403, detail="Job does not belong to this organization")
+
+    # 1. Find optimized resumes to clean up storage
+    resume_repo = ResumeRepository(db)
+    all_resumes = await resume_repo.get_resumes_by_candidate_id(candidate_id)
+    optimized_resumes = [
+        r for r in all_resumes 
+        if r.is_optimized and r.job_id == job_id
+    ]
+
+    for res in optimized_resumes:
+        # Delete from storage
+        if res.storage_key:
+            try:
+                await storage_service.delete_file(res.storage_key)
+                logger.info(f"Deleted optimized resume file {res.storage_key} for candidate {candidate_id}")
+            except Exception as e:
+                logger.error(f"Failed to delete file {res.storage_key} from S3: {e}")
+
+        # Cancel any active tasks in memory
+        await cancel_resume_agent(job_id=job_id, resume_id=res.id)
+        await cancel_analyzer_agent(job_id=job_id, candidate_id=candidate_id, resume_id=res.id)
+        await cancel_optimizer_agent(job_id=job_id, candidate_id=candidate_id, resume_id=res.id)
 
     success = await job_repo.detach_candidate(
         job_id=job_id,

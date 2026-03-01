@@ -45,7 +45,8 @@ class ResumeRepository:
         candidate_id: Optional[uuid.UUID] = None,
         is_active: bool = True,
         is_generated: bool = False,
-        is_optimized: bool = False
+        is_optimized: bool = False,
+        parent_id: Optional[uuid.UUID] = None
     ) -> uuid.UUID:
         """Insert a new resume with its embedding"""
         import hashlib
@@ -61,7 +62,8 @@ class ResumeRepository:
             candidate_id=candidate_id,
             is_active=is_active,
             is_generated=is_generated,
-            is_optimized=is_optimized
+            is_optimized=is_optimized,
+            parent_id=parent_id
         )
         self.session.add(resume)
         await self.session.flush()
@@ -90,7 +92,8 @@ class ResumeRepository:
         candidate_id: Optional[uuid.UUID] = None,
         is_active: bool = True,
         is_generated: bool = False,
-        is_optimized: bool = False
+        is_optimized: bool = False,
+        parent_id: Optional[uuid.UUID] = None
     ) -> uuid.UUID:
         """Insert a new resume with a pre-generated ID"""
         import hashlib
@@ -107,7 +110,8 @@ class ResumeRepository:
             candidate_id=candidate_id,
             is_active=is_active,
             is_generated=is_generated,
-            is_optimized=is_optimized
+            is_optimized=is_optimized,
+            parent_id=parent_id
         )
         self.session.add(resume)
         await self.session.flush()
@@ -290,7 +294,8 @@ class ResumeRepository:
         candidate_id: Optional[uuid.UUID] = None,
         is_active: Optional[bool] = None,
         is_generated: Optional[bool] = None,
-        is_optimized: Optional[bool] = None
+        is_optimized: Optional[bool] = None,
+        parent_id: Optional[uuid.UUID] = None
     ) -> bool:
         """Update an existing resume's details"""
         result = await self.session.execute(
@@ -331,6 +336,8 @@ class ResumeRepository:
             resume.is_generated = is_generated
         if is_optimized is not None:
             resume.is_optimized = is_optimized
+        if parent_id is not None:
+            resume.parent_id = parent_id
             
         await self.session.flush()
         return True

@@ -61,3 +61,10 @@ def get_checkpoint_config(thread_id: str):
             "checkpoint_ns": ""
         }
     }
+
+def get_task_id(thread_id: str) -> uuid.UUID:
+    """Generates a deterministic UUID from a thread ID for use as a ProcessingTask primary key."""
+    import hashlib
+    # We use MD5 because it's 128 bits, which fits perfectly into a UUID
+    hash_obj = hashlib.md5(thread_id.encode())
+    return uuid.UUID(hash_obj.hexdigest())

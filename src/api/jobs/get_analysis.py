@@ -92,27 +92,48 @@ async def get_analysis(
     optimized_resume_info = None
     if all_resumes:
         # Filter for optimized resumes matching the job_id
-        matching = [
-            r for r in all_resumes 
-            if getattr(r, "is_optimized", False) and str(getattr(r, "job_id", "")) == str(job_id)
-        ]
+        matching = []
+        for r in all_resumes:
+            is_opt = getattr(r, "is_optimized", False)
+            r_job_id = getattr(r, "job_id", None)
+            
+            # Convert both to strings for comparison to avoid UUID/string mismatch
+            if is_opt and r_job_id and str(r_job_id) == str(job_id):
+                matching.append(r)
+            else:
+                if is_opt:
+                    logger.debug(f"Rejecting optimized resume {r.id} for job {job_id} (resume belongs to job {r_job_id})")
+
         if matching:
-            # Sort by created_at descending if available, or just pick the last one
-            optimized_resume = matching[-1]
+            # Sort by created_at descending to get the LATEST optimized resume
+            matching.sort(key=lambda r: r.created_at if r.created_at else datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+            optimized_resume = matching[0]
+            
+            logger.info(f"Found {len(matching)} optimized resumes for job {job_id}. Picking latest: {optimized_resume.id}")
             
             # Generate signed URL if storage_key is present
             signed_url = None
             storage_key = getattr(optimized_resume, "storage_key", None)
             if storage_key:
-                signed_url = await storage_service.get_presigned_url(storage_key)
+                try:
+                    # Check if the file actually exists in storage before claiming it's ready
+                    if await storage_service.file_exists(storage_key):
+                        signed_url = await storage_service.get_presigned_url(storage_key)
+                    else:
+                        logger.warning(f"Optimized resume {optimized_resume.id} found in DB but missing from storage: {storage_key}. Treating as null.")
+                        optimized_resume = None
+                except Exception as e:
+                    logger.error(f"Error checking storage for optimized resume {optimized_resume.id}: {e}")
+                    signed_url = None
             
-            created_at = getattr(optimized_resume, "created_at", None)
-            optimized_resume_info = {
-                "id": str(getattr(optimized_resume, "id", "")),
-                "status": "completed",
-                "signed_url": signed_url,
-                "created_at": created_at.isoformat() if created_at and hasattr(created_at, "isoformat") else created_at
-            }
+            if optimized_resume:
+                created_at = getattr(optimized_resume, "created_at", None)
+                optimized_resume_info = {
+                    "id": str(getattr(optimized_resume, "id", "")),
+                    "status": "completed",
+                    "signed_url": signed_url,
+                    "created_at": created_at.isoformat() if created_at and hasattr(created_at, "isoformat") else created_at
+                }
     
     if not optimized_resume_info:
         # If no optimized resume found in DB, check if it's currently being generated or if it failed
@@ -121,9 +142,11 @@ async def get_analysis(
         
         result = await db.execute(
             select(ProcessingTask)
-            .where(ProcessingTask.id == candidate_id)
-            .where(ProcessingTask.task_type == "optimizer")
+            .where(ProcessingTask.candidate_id == candidate_id)
             .where(ProcessingTask.job_id == job_id)
+            .where(ProcessingTask.task_type == "optimizer")
+            .order_by(ProcessingTask.created_at.desc())
+            .limit(1)
         )
         task = result.scalar_one_or_none()
         

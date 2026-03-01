@@ -5,6 +5,8 @@ from fastapi import Form, Depends, UploadFile, File, BackgroundTasks, Request, H
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.resume_processor.run import run_resume_agent
+from src.agents.utils import generate_thread_id, get_task_id
+import hashlib
 from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.resume_repository import ResumeRepository
@@ -108,8 +110,13 @@ async def upload_resume(
         # Pre-register the task in the database so that immediate status checks see 'processing'
         from src.repositories.processing_task_repository import ProcessingTaskRepository
         task_repo = ProcessingTaskRepository(db)
+        
+        # Use stable task_id derived from thread_id
+        thread_id = generate_thread_id("resume", job_id, str(resume_id))
+        task_id = get_task_id(thread_id)
+        
         await task_repo.create_task(
-            task_id=resume_id, # For resume tasks, task_id is the resume_id
+            task_id=task_id,
             task_type="resume",
             job_id=job_id,
             resume_id=resume_id,

@@ -8,6 +8,7 @@ from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.agents.jd_processor.run import run_jd_agent
+from src.agents.utils import generate_thread_id, get_task_id
 from .models import JobUpdate
 
 logger = logging.getLogger(__name__)
@@ -76,8 +77,13 @@ async def patch_job(
             # Pre-register the task in the database so that immediate GET requests see SIGNAL_PROCESSING
             from src.repositories.processing_task_repository import ProcessingTaskRepository
             task_repo = ProcessingTaskRepository(db)
+            
+            # Use stable task_id derived from thread_id
+            thread_id = generate_thread_id("jd", job_id)
+            task_id = get_task_id(thread_id)
+            
             await task_repo.create_task(
-                task_id=job_id, # For JD tasks, task_id is the job_id
+                task_id=task_id,
                 task_type="jd",
                 job_id=job_id,
                 status="starting"

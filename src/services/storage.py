@@ -165,4 +165,20 @@ class StorageService:
             logger.error(f"Failed to generate presigned URL: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to generate presigned URL: {str(e)}")
 
+    async def file_exists(self, storage_key: str) -> bool:
+        """
+        Checks if an object exists in S3.
+        """
+        try:
+            async with self.session.client('s3', endpoint_url=self.endpoint_url) as s3:
+                await s3.head_object(Bucket=self.bucket_name, Key=storage_key)
+            return True
+        except ClientError as e:
+            if e.response.get('Error', {}).get('Code') == '404':
+                return False
+            raise e
+        except Exception as e:
+            logger.error(f"Failed to check file existence in S3: {str(e)}")
+            return False
+
 storage_service = StorageService()

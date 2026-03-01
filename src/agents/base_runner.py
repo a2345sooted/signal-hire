@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Dict, Any, Optional, Callable, Awaitable, Protocol, TypeVar, Mapping
 
-from .utils import get_checkpoint_config, extract_uuid_from_thread_id
+from .utils import get_checkpoint_config, extract_uuid_from_thread_id, get_task_id
 from ..database import AsyncSessionLocal
 from ..repositories.processing_task_repository import ProcessingTaskRepository
 
@@ -34,7 +34,7 @@ async def run_agent_with_retries(
     attempt = 1
     
     # 1. Register task in DB
-    task_id = extract_uuid_from_thread_id(thread_id)
+    task_id = get_task_id(thread_id)
     if task_id:
         try:
             async with AsyncSessionLocal() as db:

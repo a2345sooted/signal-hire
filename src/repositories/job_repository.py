@@ -69,8 +69,9 @@ class JobRepository:
         return attachment.id
 
     async def detach_candidate(self, job_id: uuid.UUID, candidate_id: uuid.UUID) -> bool:
-        """Detach a candidate from a job"""
-        from ..models.db_models import JobAttachment
+        """Detach a candidate from a job and clean up optimized resumes."""
+        from ..models.db_models import JobAttachment, Resume, ProcessingTask
+        from sqlalchemy import delete
         
         stmt = select(JobAttachment).where(
             JobAttachment.job_id == job_id,
@@ -82,6 +83,33 @@ class JobRepository:
         if not attachment:
             return False
             
+        # 1. Find all optimized resumes for this specific job-candidate pair
+        # We also want to delete their storage and tasks, but repository is usually DB-only.
+        # However, following the pattern in delete_resume.py, we should ideally handle it.
+        # For now, let's at least delete from DB.
+        
+        resume_stmt = select(Resume).where(
+            Resume.candidate_id == candidate_id,
+            Resume.job_id == job_id,
+            Resume.is_optimized == True
+        )
+        resume_result = await self.session.execute(resume_stmt)
+        optimized_resumes = resume_result.scalars().all()
+        
+        for res in optimized_resumes:
+            # Cancel tasks in DB for this resume
+            await self.session.execute(
+                delete(ProcessingTask).where(ProcessingTask.resume_id == res.id)
+            )
+            # Storage cleanup should probably happen in the API layer or a service,
+            # but let's see if we can do it here or if we should move this logic to API.
+            
+            # For now, let's just delete the resume record. 
+            # Cascades (if any) will handle related records like embeddings/analyses.
+            # Analysis model has resume_id with ondelete="CASCADE".
+            # Embedding model has resume_id with ondelete="CASCADE".
+            await self.session.delete(res)
+
         await self.session.delete(attachment)
         await self.session.flush()
         return True

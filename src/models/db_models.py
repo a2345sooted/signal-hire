@@ -114,11 +114,13 @@ class Resume(Base):
     is_current = Column(Boolean, nullable=False, default=True)
     is_generated = Column(Boolean, nullable=False, default=False)
     is_optimized = Column(Boolean, nullable=False, default=False)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     job = relationship("Job", back_populates="resumes")
     candidate = relationship("Candidate", back_populates="resumes")
+    parent = relationship("Resume", remote_side=[id], backref="children")
     analyses = relationship("Analysis", back_populates="resume", cascade="all, delete-orphan")
     embeddings = relationship("Embedding", back_populates="resume", cascade="all, delete-orphan")
 
