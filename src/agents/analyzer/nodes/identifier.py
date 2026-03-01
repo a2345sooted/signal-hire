@@ -29,9 +29,18 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     candidate_notes = state.get("candidate_notes", [])
     candidate_metadata = state.get("candidate_metadata")
     
+    job_notes = state.get("job_notes", [])
+    
     resume_text = resume_data.get('raw_text') or str(resume_data.get('structured_data', 'No resume data available'))
     job_text = job_data.get('raw_text', 'No JD text available')
     
+    job_info = f"Job Description: {job_text}\n"
+    if job_notes:
+        job_info += "Additional Job Notes:\n"
+        for note in job_notes:
+            content = note.get('content', '')
+            job_info += f"- {content}\n"
+
     candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
     if candidate_metadata:
         candidate_info += "Metadata:\n"
@@ -49,8 +58,8 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     CANDIDATE INFO:
     {candidate_info}
 
-    JOB DESCRIPTION:
-    {job_text}
+    JOB CONTEXT:
+    {job_info}
     
     RESUME TEXT/DATA:
     {resume_text}

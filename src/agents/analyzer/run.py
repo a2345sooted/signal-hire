@@ -87,6 +87,13 @@ async def run_analyzer_agent(
                  # Check if we have core results but just failed to save
                  if state.get("score") is not None and state.get("major_hits"):
                      logger.info(f"[{log_tag}] [{thread_id}] Core results exist, but analysis_id is missing. Likely a save failure.")
+                 
+                 # Log more state details to debug
+                 logger.info(f"[{log_tag}] [{thread_id}] State keys at completion check: {list(state.keys())}")
+                 if "messages" in state:
+                     logger.info(f"[{log_tag}] [{thread_id}] Messages count: {len(state['messages'])}")
+            else:
+                 logger.info(f"[{log_tag}] [{thread_id}] Completion check passed: analysis_id={analysis_id}")
             return has_analysis_id
 
         result = await run_agent_with_retries(

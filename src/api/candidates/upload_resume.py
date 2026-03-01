@@ -122,10 +122,10 @@ async def upload_resume(
     # 1. Create a skeleton record
     unique_filename = await resume_repo.get_unique_filename(file.filename)
 
-    # Follow new convention for non-optimized resumes: candidates/:candidateId/resumes/:resumeId
-    # We pre-generate resume_id to use it in the storage key
+    # Follow new simplified convention for non-optimized resumes: candidates/:candidateId/resumes/:filename
+    # We pre-generate resume_id for the database record
     resume_id = uuid.uuid4()
-    storage_key = f"candidates/{candidate_id}/resumes/{resume_id}"
+    storage_key = f"candidates/{candidate_id}/resumes/{unique_filename}"
 
     await resume_repo.create_resume_with_id(
         resume_id=resume_id,

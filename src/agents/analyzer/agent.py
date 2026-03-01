@@ -100,6 +100,8 @@ builder.add_edge("message_repairer", "message_checker")
 builder.add_edge("hiring_notes", "save_analysis")
 builder.add_edge("save_analysis", END)
 
+logger.info("Analyzer Agent graph defined successfully.")
+
 def compile_analyzer_agent(checkpointer):
     """Compile the analyzer agent with a checkpointer."""
     return builder.compile(checkpointer=checkpointer)

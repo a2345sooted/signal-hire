@@ -44,20 +44,39 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
 
     # Handle PDF generation for DOCX uploads
     original_filename = state.get("metadata", {}).get("original_filename", "resume.pdf")
+    file_key = state.get("file_key")
+    candidate_id = state.get("candidate_id")
+    resume_id = state.get("resume_id")
+
+    # Determine candidate-based storage path: candidates/{candidate_id}/resumes/{original_filename}
+    new_dir_id = f"candidates/{candidate_id}/resumes" if candidate_id else f"resumes/{resume_id}"
     storage_key = file_key
-    
+
+    # 1. Move original file to candidate-based folder if needed
+    if candidate_id and file_key and not file_key.startswith(f"candidates/{candidate_id}/"):
+        try:
+            new_storage_key = f"{new_dir_id}/{original_filename}"
+            if file_key != new_storage_key:
+                logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Moving original resume from {file_key} to {new_storage_key}")
+                await storage_service.copy_file(file_key, new_storage_key)
+                await storage_service.delete_file(file_key)
+                storage_key = new_storage_key
+        except Exception as e:
+            logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to move original resume: {str(e)}")
+            # Fallback to current storage_key if move fails
+
     if original_filename.lower().endswith(".docx"):
         try:
             logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] DOCX detected. Generating PDF version from structured data...")
             pdf_bytes = pdf_generator.generate_pdf(structured_data)
             pdf_filename = original_filename.rsplit(".", 1)[0] + ".pdf"
-            # Store in the same directory as the original file
-            dir_id = str(state.get("resume_id"))
+            
+            # Store in the candidate-based folder
             storage_key = await storage_service.upload_file_data(
                 pdf_bytes, 
                 pdf_filename, 
                 content_type="application/pdf",
-                dir_id=dir_id
+                dir_id=new_dir_id
             )
             logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] PDF version generated and stored: {storage_key}")
         except Exception as e:
@@ -140,6 +159,31 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                     org_id=state.get("org_id")
                 )
             
+            # RE-EVALUATE STORAGE PATH IF CANDIDATE_ID WAS JUST CREATED
+            if candidate_id and storage_key and not storage_key.startswith(f"candidates/{candidate_id}/"):
+                try:
+                    new_dir_id = f"candidates/{candidate_id}/resumes"
+                    
+                    # If it was a docx, we already generated a PDF. 
+                    # If original was docx, storage_key points to the PDF.
+                    # We need to move the PDF.
+                    
+                    filename_to_move = original_filename
+                    if original_filename.lower().endswith(".docx"):
+                        # In the docx logic above, we stored PDF at {new_dir_id}/{pdf_filename}
+                        # If candidate_id was missing then, new_dir_id was resumes/{resume_id}
+                        filename_to_move = original_filename.rsplit(".", 1)[0] + ".pdf"
+
+                    new_storage_key = f"{new_dir_id}/{filename_to_move}"
+                    
+                    if storage_key != new_storage_key:
+                        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Moving resume from {storage_key} to {new_storage_key} (candidate identified)")
+                        await storage_service.copy_file(storage_key, new_storage_key)
+                        await storage_service.delete_file(storage_key)
+                        storage_key = new_storage_key
+                except Exception as e:
+                    logger.error(f"[RESUME_PROCESSOR] [{clean_id_str}] Failed to move resume after candidate identification: {str(e)}")
+
             # Update candidate with full info extracted from resume
             # We ONLY update fields if they are currently null or empty in the database.
             candidate_to_update = await candidate_repo.get_candidate_by_id(candidate_id)

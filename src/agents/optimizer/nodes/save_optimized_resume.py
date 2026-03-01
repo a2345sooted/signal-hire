@@ -77,16 +77,16 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
             
             # Pre-generate a resume ID so we can use it in the storage key
             new_resume_id = uuid.uuid4()
-            # Follow new convention for optimized resumes: candidates/:candidateId/resumes/optimized/:resumeId
-            storage_key = f"candidates/{candidate_id}/resumes/optimized/{new_resume_id}"
-            
             # Create a unique filename for the optimized resume
             original_resume_data = state.get("resume_data", {})
             original_filename = original_resume_data.get("filename") or "resume.pdf"
             base_name = original_filename.rsplit(".", 1)[0]
             ext = "pdf" # We'll eventually generate a PDF for it
-            optimized_filename = f"{base_name}_optimized.{ext}"
+            optimized_filename = f"{base_name}_signal.{ext}"
             unique_filename = await repo.get_unique_filename(optimized_filename)
+
+            # Follow new simplified convention for optimized resumes: candidates/:candidateId/resumes/optimized/:filename
+            storage_key = f"candidates/{candidate_id}/resumes/optimized/{unique_filename}"
             
             # Generate PDF from structured data
             logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Generating PDF for optimized resume...")

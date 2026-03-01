@@ -390,9 +390,9 @@ class JobRepository:
             .where(ProcessingTask.task_type == TASK_ANALYSIS)
         )
         
-        if attached_resume_id:
-            task_stmt = task_stmt.where(ProcessingTask.resume_id == attached_resume_id)
-            
+        # NOTE: We don't filter by attached_resume_id here to be more inclusive of any active analysis
+        # for this candidate/job pair, which helps avoid 'pending' status when a task is running.
+        
         task_stmt = task_stmt.order_by(ProcessingTask.created_at.desc()).limit(1)
         
         task_result = await self.session.execute(task_stmt)

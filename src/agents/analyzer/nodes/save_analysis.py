@@ -54,30 +54,42 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
                 c_id = uuid.UUID(str(candidate_id))
                 j_id = uuid.UUID(str(job_id))
                 r_id = uuid.UUID(str(resume_id)) if resume_id else None
+                logger.info(f"[ANALYZER_AGENT] Parsed IDs: candidate_id={c_id}, job_id={j_id}, resume_id={r_id}")
             except ValueError as ve:
                 logger.error(f"[ANALYZER_AGENT] Invalid UUID format in state: candidate_id={candidate_id}, job_id={job_id}, resume_id={resume_id}")
                 return {"analysis_id": None} # Signal failure to completion check
 
-            logger.info(f"[ANALYZER_AGENT] Checking for existing analysis. candidate_id={c_id}, job_id={j_id}, resume_id={r_id}")
             # Check for existing skeleton analysis
-            existing = await repo.get_analysis_for_candidate_job_resume(
-                candidate_id=c_id,
-                job_id=j_id,
-                resume_id=r_id
-            )
+            existing = None
+            if r_id:
+                logger.info(f"[ANALYZER_AGENT] Checking for analysis by candidate, job, and resume: {c_id}, {j_id}, {r_id}")
+                existing = await repo.get_analysis_for_candidate_job_resume(
+                    candidate_id=c_id,
+                    job_id=j_id,
+                    resume_id=r_id
+                )
+            
+            if not existing:
+                # Fallback: check by candidate and job only if no resume-specific one found
+                logger.info(f"[ANALYZER_AGENT] Checking for analysis by candidate and job: {c_id}, {j_id}")
+                existing = await repo.get_analysis_for_candidate_job(
+                    candidate_id=c_id,
+                    job_id=j_id
+                )
             
             if existing:
-                logger.info(f"[ANALYZER_AGENT] Updating existing analysis {existing['id']}")
-                await repo.update_analysis(
+                logger.info(f"[ANALYZER_AGENT] Found existing analysis {existing['id']}. Updating...")
+                success = await repo.update_analysis(
                     analysis_id=uuid.UUID(str(existing['id'])),
                     content=content,
                     resume_id=r_id,
                     jd_hash=jd_hash,
                     details_hash=details_hash
                 )
+                logger.info(f"[ANALYZER_AGENT] Update success: {success}")
                 analysis_id = existing['id']
             else:
-                logger.info("[ANALYZER_AGENT] Creating new analysis record")
+                logger.info("[ANALYZER_AGENT] No existing analysis found. Creating new analysis record...")
                 analysis_id = await repo.create_analysis(
                     candidate_id=c_id,
                     job_id=j_id,
@@ -86,11 +98,17 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
                     jd_hash=jd_hash,
                     details_hash=details_hash
                 )
+                logger.info(f"[ANALYZER_AGENT] Created new analysis with ID: {analysis_id}")
             
             await db.commit()
-            logger.info(f"[ANALYZER_AGENT] Analysis saved with ID: {analysis_id}")
+            final_analysis_id = uuid.UUID(str(analysis_id))
+            logger.info(f"[ANALYZER_AGENT] Analysis saved successfully. Returning analysis_id: {final_analysis_id}")
+            
+            # Update state dict directly to be safe, though returning it is the standard way
+            state["analysis_id"] = final_analysis_id
+            
             # Return ONLY the updated field to merge into state
-            return {"analysis_id": uuid.UUID(str(analysis_id))}
+            return {"analysis_id": final_analysis_id}
     except Exception as e:
         logger.error(f"[ANALYZER_AGENT] Failed to save analysis: {str(e)}", exc_info=True)
         # We must return SOMETHING that doesn't wipe the state, but we also need to signal failure
