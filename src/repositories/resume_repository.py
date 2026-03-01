@@ -214,6 +214,9 @@ class ResumeRepository:
             "job_id": str(resume.job_id) if resume.job_id else None,
             "candidate_id": str(resume.candidate_id) if resume.candidate_id else None,
             "is_active": resume.is_active,
+            "is_optimized": resume.is_optimized,
+            "parent_id": str(resume.parent_id) if resume.parent_id else None,
+            "diff": resume.diff,
             "created_at": resume.created_at.isoformat() if resume.created_at else None
         }
 

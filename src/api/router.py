@@ -8,6 +8,7 @@ from src.api.jobs import (
     optimize_resume, get_optimized_resume, generate_resume_diff, change_attachment_resume,
     re_analyze
 )
+from src.api.resumes.generate_diff import generate_diff as generate_resume_diff_harness
 from src.api.organizations import create_organization, get_my_organizations
 from src.api.users import get_me
 from src.api.candidates import (
@@ -60,6 +61,7 @@ router.post("/v1/resumes/upload", tags=["resumes"])(upload_resume)
 router.post("/v1/resumes/stop/{job_id}", tags=["resumes"])(stop_resume_processing)
 router.get("/v1/resumes/{resume_id}", tags=["resumes"])(get_resume)
 router.get("/v1/resumes/{resume_id}/pdf", tags=["resumes"])(get_resume_pdf)
+router.post("/v1/resumes/{resume_id}/generate-diff", tags=["resumes"])(generate_resume_diff_harness)
 router.get("/v1/resume/{resume_id}/analysis", tags=["resumes"])(get_resume_analysis)
 router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/analysis", tags=["analyses"])(get_analysis)
 router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/analysis/status", tags=["analyses"])(get_analysis_status)
