@@ -62,11 +62,20 @@ async def get_jobs(
         resumes = []
         if job.get("resumes"):
             for resume in job["resumes"]:
+                # For top candidates in get_jobs, we use the analysis status logic
+                # We need a db session here, but get_jobs already has one.
+                # However, repo.get_all_jobs already formatted these resumes slightly.
+                # Let's see if we should enhance repo.get_all_jobs or do it here.
+                # Given get_jobs is for a list view, we want to keep it efficient.
+                
                 resumes.append({
                     "id": resume.get("id"),
                     "original_filename": resume.get("name") or "Unknown",
                     "structured_data": {"rank": resume.get("rank")},
-                    "analysis_id": resume.get("analysis_id")
+                    "analysis_id": resume.get("analysis_id"),
+                    # We add these for consistency, though list view might not always use them
+                    "analysis_status": "ready" if resume.get("analysis_id") else "pending",
+                    "is_analysis_processing": False # Simplified for list view
                 })
         
         # Sort resumes by rank to get top candidates

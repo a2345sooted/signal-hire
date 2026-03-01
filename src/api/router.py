@@ -5,7 +5,8 @@ from src.api.jobs import (
     get_resume_analysis, get_analysis_status, get_resume_pdf, get_job, get_analysis,
     stop_resume_processing, delete_job, patch_job, add_job_note,
     patch_job_note, delete_job_note, attach_candidate, detach_candidate,
-    optimize_resume, get_optimized_resume, generate_resume_diff, change_attachment_resume
+    optimize_resume, get_optimized_resume, generate_resume_diff, change_attachment_resume,
+    re_analyze
 )
 from src.api.organizations import create_organization, get_my_organizations
 from src.api.users import get_me
@@ -35,6 +36,7 @@ router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/optimize-resume", tags=
 router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/generate-resume-diff", tags=["jobs"])(generate_resume_diff)
 router.get("/v1/jobs/{job_id}/candidates/{candidate_id}/optimized-resume", tags=["jobs"])(get_optimized_resume)
 router.delete("/v1/jobs/{job_id}/candidates/{candidate_id}/detach", tags=["jobs"])(detach_candidate)
+router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/re-analyze", tags=["jobs"])(re_analyze)
 
 router.post("/v1/organizations", tags=["organizations"])(create_organization)
 router.get("/v1/organizations/mine", tags=["organizations"])(get_my_organizations)

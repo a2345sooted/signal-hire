@@ -7,7 +7,7 @@ from langchain_core.messages import ToolMessage, HumanMessage, AIMessage
 from ....agents.analyzer.state import AnalyzerState
 from ....agents.utils import strip_id_prefix, get_thread_id
 from ....constants import NO_THREAD_ID
-from ....ai_model_factory import get_model, MODEL_5_2
+from ....ai_model_factory import get_model, MODEL_4O_MINI
 from ....models.analysis import ScoringSchema, DeterministicScoringInput, ScoreBreakdown
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     
     logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Scorer Node started.")
     
-    llm = get_model(model_name=MODEL_5_2)
+    llm = get_model(model_name=MODEL_4O_MINI)
     
     # Define the tool for the LLM
     tools = [
@@ -91,8 +91,14 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     minor_gaps = state.get("minor_gaps", [])
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
+    candidate_metadata = state.get("candidate_metadata")
     
     candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
+    if candidate_metadata:
+        candidate_info += "Metadata:\n"
+        for key, value in candidate_metadata.items():
+            if value:
+                candidate_info += f"- {key}: {value}\n"
     if candidate_notes:
         candidate_info += "Notes:\n"
         for note in candidate_notes:

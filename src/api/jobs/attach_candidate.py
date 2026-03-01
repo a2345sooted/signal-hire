@@ -93,6 +93,15 @@ async def attach_candidate(
         candidate_notes = await candidate_repo.get_notes(candidate_id)
         candidate_location = candidate.location if hasattr(candidate, 'location') else None
         
+        # Prepare additional candidate metadata for analyzer
+        candidate_metadata = {
+            "citizenship": candidate.citizenship,
+            "linkedin_url": candidate.linkedin_url,
+            "engagement_types": candidate.engagement_types,
+            "work_preference": candidate.work_preference,
+            "open_to_relocation": candidate.open_to_relocation
+        }
+        
         analysis_repo = AnalysisRepository(db)
         existing_analysis = await analysis_repo.get_analysis_for_candidate_job_resume(
             candidate_id=candidate_id,
@@ -173,6 +182,7 @@ async def attach_candidate(
                 },
                 candidate_notes=candidate_notes,
                 candidate_location=candidate_location,
+                candidate_metadata=candidate_metadata,
                 org_id=org.id
             )
     else:

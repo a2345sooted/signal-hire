@@ -77,6 +77,7 @@ async def run_agent_with_retries(
             state = None
             is_finished = False
             try:
+                from .utils import get_checkpoint_config
                 checkpoint_config = get_checkpoint_config(thread_id)
                 saved_state = await agent.aget_state(checkpoint_config)
                 if saved_state and saved_state.values:
@@ -221,9 +222,14 @@ async def run_agent_with_retries(
             
             # Check for OpenAI RateLimitError (insufficient_quota or rate_limit)
             is_rate_limit = False
-            if "insufficient_quota" in str(e).lower() or "rate_limit" in str(e).lower() or "429" in str(e):
+            is_quota_error = "insufficient_quota" in str(e).lower()
+            
+            if is_quota_error or "rate_limit" in str(e).lower() or "429" in str(e):
                 is_rate_limit = True
-                logger.warning(f"[{log_tag}] [{thread_id}] Rate limit detected (OpenAI 429). Attempting retry with longer backoff.")
+                if is_quota_error:
+                    logger.error(f"[{log_tag}] [{thread_id}] ❌ CRITICAL: OpenAI Quota Exceeded. Please check your billing details.")
+                else:
+                    logger.warning(f"[{log_tag}] [{thread_id}] Rate limit detected (OpenAI 429). Attempting retry with longer backoff.")
 
             if attempt >= max_retries:
                 logger.error(f"[{log_tag}] [{thread_id}] ❌ Agent failed after {max_retries} attempts.", exc_info=True)

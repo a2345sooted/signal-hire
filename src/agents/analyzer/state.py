@@ -25,6 +25,7 @@ class AnalyzerState(BaseAgentState):
     job_data: Dict[str, Any]
     candidate_notes: Optional[List[Dict[str, Any]]] = None
     candidate_location: Optional[str] = None
+    candidate_metadata: Optional[Dict[str, Any]] = None
     candidate_experience_summary: Optional[str] = None # Added for more context if available
     
     # Analysis results

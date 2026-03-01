@@ -5,7 +5,7 @@ from langchain_core.runnables import RunnableConfig
 from ....agents.analyzer.state import AnalyzerState
 from ....agents.utils import strip_id_prefix, get_thread_id
 from ....constants import NO_THREAD_ID
-from ....ai_model_factory import get_model, MODEL_5_2
+from ....ai_model_factory import get_model, MODEL_4O_MINI
 from ....models.analysis import MatchGapAnalysisSchema
 
 logger = logging.getLogger(__name__)
@@ -20,18 +20,24 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     if clean_id_str != NO_THREAD_ID:
         pass
 
-    llm = get_model(model_name=MODEL_5_2)
+    llm = get_model(model_name=MODEL_4O_MINI)
     structured_identifier = llm.with_structured_output(MatchGapAnalysisSchema)
     
     resume_data = state["resume_data"]
     job_data = state["job_data"]
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
+    candidate_metadata = state.get("candidate_metadata")
     
     resume_text = resume_data.get('raw_text') or str(resume_data.get('structured_data', 'No resume data available'))
     job_text = job_data.get('raw_text', 'No JD text available')
     
     candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
+    if candidate_metadata:
+        candidate_info += "Metadata:\n"
+        for key, value in candidate_metadata.items():
+            if value:
+                candidate_info += f"- {key}: {value}\n"
     if candidate_notes:
         candidate_info += "Notes:\n"
         for note in candidate_notes:

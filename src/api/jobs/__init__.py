@@ -51,4 +51,7 @@ __all__ = [
     "get_optimized_resume",
     "generate_resume_diff",
     "change_attachment_resume",
+    "re_analyze",
 ]
+
+from .re_analyze import re_analyze

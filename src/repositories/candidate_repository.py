@@ -41,6 +41,94 @@ class CandidateRepository:
         await self.session.flush()
         return candidate.id
 
+    async def _get_analysis_status_for_attachment(
+        self, 
+        candidate_id: uuid.UUID, 
+        job_id: uuid.UUID, 
+        attached_resume_id: Optional[uuid.UUID]
+    ) -> Dict[str, Any]:
+        """Common logic to calculate analysis status for an attached job/candidate"""
+        from ..models.db_models import Analysis, ProcessingTask
+        from ..constants import TASK_ANALYSIS
+        from datetime import datetime, timezone, timedelta
+        
+        # Check for analysis in DB
+        analysis_stmt = (
+            select(Analysis)
+            .where(Analysis.candidate_id == candidate_id)
+            .where(Analysis.job_id == job_id)
+        )
+        
+        if attached_resume_id:
+            analysis_stmt = analysis_stmt.where(Analysis.resume_id == attached_resume_id)
+        
+        analysis_stmt = analysis_stmt.order_by(Analysis.created_at.desc()).limit(1)
+        
+        analysis_result = await self.session.execute(analysis_stmt)
+        analysis = analysis_result.scalar_one_or_none()
+
+        # Check if a completed analysis exists
+        is_ready = False
+        score = None
+        if analysis:
+            content = analysis.content
+            if content.get("status") == "completed":
+                is_ready = True
+                score = content.get("score")
+            elif content.get("score") is not None:
+                # Legacy check for score
+                is_ready = True
+                score = content.get("score")
+
+        # Check for active task
+        task_stmt = (
+            select(ProcessingTask)
+            .where(ProcessingTask.job_id == job_id)
+            .where(ProcessingTask.candidate_id == candidate_id)
+            .where(ProcessingTask.task_type == TASK_ANALYSIS)
+        )
+        
+        if attached_resume_id:
+            task_stmt = task_stmt.where(ProcessingTask.resume_id == attached_resume_id)
+            
+        task_stmt = task_stmt.order_by(ProcessingTask.created_at.desc()).limit(1)
+        
+        task_result = await self.session.execute(task_stmt)
+        latest_task = task_result.scalar_one_or_none()
+        
+        is_processing = False
+        if latest_task and latest_task.status in ["starting", "processing"]:
+            task_time = latest_task.created_at
+            if task_time.tzinfo is None:
+                task_time = task_time.replace(tzinfo=timezone.utc)
+            
+            # It's only truly processing if the task is NOT stuck
+            now = datetime.now(timezone.utc)
+            last_activity = latest_task.updated_at or latest_task.created_at
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(tzinfo=timezone.utc)
+            
+            is_stuck = (now - last_activity).total_seconds() / 60 >= 10 # 10 minute timeout
+            
+            if not is_stuck:
+                if not is_ready:
+                    is_processing = True
+                else:
+                    analysis_updated_at = analysis.updated_at or analysis.created_at
+                    if analysis_updated_at.tzinfo is None:
+                        analysis_updated_at = analysis_updated_at.replace(tzinfo=timezone.utc)
+                    
+                    if task_time > (analysis_updated_at + timedelta(seconds=5)):
+                        is_processing = True
+
+        analysis_status = "processing" if is_processing else ("ready" if is_ready else "pending")
+        
+        return {
+            "analysis_status": analysis_status,
+            "analysis_score": score,
+            "is_analysis_processing": is_processing
+        }
+
     async def get_candidate_by_id(self, candidate_id: uuid.UUID) -> Optional[Dict[str, Any]]:
         """Retrieve a candidate by ID along with their attached jobs and notes"""
         from ..models.db_models import Job, JobAttachment, CandidateRecommendation, Analysis
@@ -89,103 +177,25 @@ class CandidateRepository:
         notes = await self.get_notes(candidate_id)
 
         # Build attached_jobs with analysis status
-        from ..agents.analyzer.run import is_analysis_active
         formatted_attached_jobs = []
         for row in attached_rows:
             job = row.Job
             attached_resume_id = row.resume_id
 
-            # Check for analysis in DB
-            analysis_stmt = (
-                select(Analysis)
-                .where(Analysis.candidate_id == candidate_id)
-                .where(Analysis.job_id == job.id)
+            # Use common status logic
+            status_data = await self._get_analysis_status_for_attachment(
+                candidate_id=candidate_id,
+                job_id=job.id,
+                attached_resume_id=attached_resume_id
             )
-            
-            # If we have a specific resume attached, look for analysis with that resume
-            if attached_resume_id:
-                analysis_stmt = analysis_stmt.where(Analysis.resume_id == attached_resume_id)
-            
-            analysis_stmt = analysis_stmt.order_by(Analysis.created_at.desc()).limit(1)
-            
-            analysis_result = await self.session.execute(analysis_stmt)
-            analysis = analysis_result.scalar_one_or_none()
-
-            # Check if a completed analysis exists
-            is_ready = False
-            score = None
-            if analysis:
-                content = analysis.content
-                if content.get("status") == "completed":
-                    is_ready = True
-                    score = content.get("score")
-                elif content.get("score") is not None:
-                    # Legacy check for score
-                    is_ready = True
-                    score = content.get("score")
-
-            # Get the latest task (active or not) to compare with analysis
-            from ..models.db_models import ProcessingTask
-            from ..constants import TASK_ANALYSIS
-            from datetime import datetime, timezone, timedelta
-            
-            task_stmt = (
-                select(ProcessingTask)
-                .where(ProcessingTask.job_id == job.id)
-                .where(ProcessingTask.candidate_id == candidate_id)
-                .where(ProcessingTask.task_type == TASK_ANALYSIS)
-            )
-            
-            if attached_resume_id:
-                task_stmt = task_stmt.where(ProcessingTask.resume_id == attached_resume_id)
-                
-            task_stmt = task_stmt.order_by(ProcessingTask.created_at.desc()).limit(1)
-            
-            task_result = await self.session.execute(task_stmt)
-            latest_task = task_result.scalar_one_or_none()
-            
-            is_processing = False
-            if latest_task and latest_task.status in ["starting", "processing"]:
-                task_time = latest_task.created_at
-                if task_time.tzinfo is None:
-                    task_time = task_time.replace(tzinfo=timezone.utc)
-                
-                # It's only truly processing if the task is NOT stuck
-                now = datetime.now(timezone.utc)
-                last_activity = latest_task.updated_at or latest_task.created_at
-                if last_activity.tzinfo is None:
-                    last_activity = last_activity.replace(tzinfo=timezone.utc)
-                
-                is_stuck = (now - last_activity).total_seconds() / 60 >= 10 # 10 minute timeout
-                
-                if not is_stuck:
-                    # If we have a ready analysis, we ONLY consider it processing if the task
-                    # is SIGNIFICANTLY newer than the analysis completion (to avoid race conditions).
-                    if not is_ready:
-                        is_processing = True
-                    else:
-                        analysis_updated_at = analysis.updated_at or analysis.created_at
-                        if analysis_updated_at.tzinfo is None:
-                            analysis_updated_at = analysis_updated_at.replace(tzinfo=timezone.utc)
-                        
-                        # Use a small buffer (e.g., 5 seconds) to ensure that we don't 
-                        # show "processing" for a task that actually finished just now
-                        # but hasn't been deleted yet.
-                        if task_time > (analysis_updated_at + timedelta(seconds=5)):
-                            is_processing = True
-
-            analysis_status = "processing" if is_processing else ("ready" if is_ready else "pending")
-            
-            # Final decision for UI processing flag
-            display_processing = is_processing
 
             formatted_attached_jobs.append({
                 "id": str(job.id),
                 "title": job.title,
                 "status": "attached",
-                "analysis_status": analysis_status,
-                "analysis_score": score,
-                "is_analysis_processing": display_processing,
+                "analysis_status": status_data["analysis_status"],
+                "analysis_score": status_data["analysis_score"],
+                "is_analysis_processing": status_data["is_analysis_processing"],
                 "attached_resume_id": str(attached_resume_id) if attached_resume_id else None
             })
 
@@ -253,28 +263,34 @@ class CandidateRepository:
         for candidate in candidates:
             # 2. Get attached jobs and their latest analysis score
             attached_query = (
-                select(Job.id, Job.title, Analysis.content)
+                select(Job, JobAttachment.resume_id)
                 .join(JobAttachment, Job.id == JobAttachment.job_id)
-                .outerjoin(Analysis, (Analysis.job_id == Job.id) & (Analysis.candidate_id == candidate.id))
                 .where(JobAttachment.candidate_id == candidate.id)
-                .order_by(Analysis.created_at.desc())
             )
             attached_result = await self.session.execute(attached_query)
             attached_rows = attached_result.all()
             
-            # Process attached jobs to get unique jobs with their latest score
-            seen_jobs = set()
+            # Process attached jobs
             attached_jobs = []
             for row in attached_rows:
-                if row.id in seen_jobs:
-                    continue
-                seen_jobs.add(row.id)
+                job = row.Job
+                attached_resume_id = row.resume_id
                 
-                score = row.content.get("score") if row.content else None
+                # Use common status logic
+                status_data = await self._get_analysis_status_for_attachment(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    attached_resume_id=attached_resume_id
+                )
+
                 attached_jobs.append({
-                    "id": str(row.id),
-                    "title": row.title,
-                    "score": score
+                    "id": str(job.id),
+                    "title": job.title,
+                    "status": "attached",
+                    "analysis_status": status_data["analysis_status"],
+                    "analysis_score": status_data["analysis_score"],
+                    "is_analysis_processing": status_data["is_analysis_processing"],
+                    "attached_resume_id": str(attached_resume_id) if attached_resume_id else None
                 })
             
             formatted_candidates.append({

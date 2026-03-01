@@ -20,6 +20,7 @@ async def generate_analysis_summary(
     resume_text: str = None,
     candidate_location: str = None,
     candidate_notes: list = None,
+    candidate_metadata: dict = None,
     thread_id: str = NO_THREAD_ID
 ) -> str:
     """
@@ -35,6 +36,11 @@ async def generate_analysis_summary(
     minor_gaps_text = "\n".join([f"- {g}" for g in (minor_gaps or [])]) if minor_gaps else "None identified."
     
     candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
+    if candidate_metadata:
+        candidate_info += "Metadata:\n"
+        for key, value in candidate_metadata.items():
+            if value:
+                candidate_info += f"- {key}: {value}\n"
     if candidate_notes:
         candidate_info += "Notes:\n"
         for note in candidate_notes:
@@ -124,6 +130,7 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
     minor_gaps = state.get("minor_gaps", [])
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
+    candidate_metadata = state.get("candidate_metadata")
     job_data = state.get("job_data", {})
     job_text = job_data.get('raw_text', 'No JD text available')
     
@@ -141,6 +148,7 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
             resume_text=resume_text,
             candidate_location=candidate_location,
             candidate_notes=candidate_notes,
+            candidate_metadata=candidate_metadata,
             thread_id=clean_id_str
         )
         

@@ -23,6 +23,7 @@ async def run_analyzer_agent(
     resume_data: Dict[str, Any],
     candidate_notes: Optional[List[Dict[str, Any]]] = None,
     candidate_location: Optional[str] = None,
+    candidate_metadata: Optional[Dict[str, Any]] = None,
     thread_id_id: Optional[str] = None,
     personal_info_mismatch_question: Optional[str] = None,
     org_id: Optional[uuid.UUID] = None
@@ -60,6 +61,7 @@ async def run_analyzer_agent(
             "job_data": job_data,
             "candidate_notes": candidate_notes,
             "candidate_location": candidate_location,
+            "candidate_metadata": candidate_metadata,
             "analysis_id": None,
             "score": None,
             "score_breakdown": None,
