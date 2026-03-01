@@ -35,9 +35,18 @@ class Settings(BaseSettings):
     s3_region: str = Field(default="us-east-1", alias="S3_REGION")
     s3_bucket: str = Field(alias="S3_BUCKET")
     
+    # SES Configuration
+    ses_region: str = Field(default="us-east-1", alias="SES_REGION")
+    ses_access_key: str = Field(alias="SES_ACCESS_KEY")
+    ses_secret_key: str = Field(alias="SES_SECRET_KEY")
+    ses_sender_email: str = Field(alias="SES_SENDER_EMAIL")
+    
     # Sentry Configuration
     sentry_dsn: Optional[str] = Field(default=None, alias="SENTRY_DSN")
     environment: str = Field(default="development", alias="ENVIRONMENT")
+
+    # Frontend Configuration
+    frontend_url: str = Field(alias="FRONTEND_URL")
 
     @property
     def database_url_async(self) -> str:

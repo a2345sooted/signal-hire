@@ -9,7 +9,11 @@ from src.api.jobs import (
     re_analyze
 )
 from src.api.resumes.generate_diff import generate_diff as generate_resume_diff_harness
-from src.api.organizations import create_organization, get_my_organizations
+from src.api.organizations import (
+    create_organization, get_my_organizations, get_organization_members,
+    invite_member, resend_invite, cancel_invite, remove_organization_member,
+    get_invite_details, accept_invite
+)
 from src.api.users import get_me
 from src.api.candidates import (
     create_candidate, get_candidate, get_candidates, patch_candidate,
@@ -41,6 +45,14 @@ router.post("/v1/jobs/{job_id}/candidates/{candidate_id}/re-analyze", tags=["job
 
 router.post("/v1/organizations", tags=["organizations"])(create_organization)
 router.get("/v1/organizations/mine", tags=["organizations"])(get_my_organizations)
+router.get("/v1/organizations/{org_id}/members", tags=["organizations"])(get_organization_members)
+router.delete("/v1/organizations/{org_id}/members/{member_id}", tags=["organizations"])(remove_organization_member)
+router.post("/v1/organizations/{org_id}/invites", tags=["organizations"])(invite_member)
+router.post("/v1/organizations/{org_id}/invites/{invite_id}/resend", tags=["organizations"])(resend_invite)
+router.delete("/v1/organizations/{org_id}/invites/{invite_id}", tags=["organizations"])(cancel_invite)
+
+router.get("/v1/invites/{invite_id}", tags=["invites"])(get_invite_details)
+router.post("/v1/invites/{invite_id}/accept", tags=["invites"])(accept_invite)
 
 router.post("/v1/candidates", tags=["candidates"])(create_candidate)
 router.get("/v1/candidates", tags=["candidates"])(get_candidates)

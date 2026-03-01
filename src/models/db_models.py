@@ -39,6 +39,7 @@ class Organization(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     users = relationship("OrganizationUser", back_populates="organization")
+    invites = relationship("OrganizationInvite", back_populates="organization", cascade="all, delete-orphan")
 
 
 class OrganizationUser(Base):
@@ -53,6 +54,24 @@ class OrganizationUser(Base):
 
     organization = relationship("Organization", back_populates="users")
     user = relationship("User", back_populates="organizations")
+
+
+class OrganizationInvite(Base):
+    __tablename__ = "organization_invites"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    email = Column(String(255), nullable=False)
+    role = Column(Enum(OrgRole), nullable=False, default=OrgRole.RECRUITER)
+    inviter_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    accepted_at = Column(DateTime(timezone=True), nullable=True)
+    accepted_email = Column(String(255), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    organization = relationship("Organization", back_populates="invites")
+    inviter = relationship("User")
 
 
 class Candidate(Base):

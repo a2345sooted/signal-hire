@@ -1,0 +1,36 @@
+import uuid
+from fastapi import Depends, Request, HTTPException, Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.database import get_db
+from src.repositories.organization_repository import OrganizationRepository
+from src.models.db_models import OrgRole
+
+async def cancel_invite(
+    org_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+) -> Response:
+    """
+    Cancels (deletes) an organization invitation.
+    Only OWNER and ADMIN can cancel invitations.
+    """
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    repo = OrganizationRepository(db)
+    
+    # Check if user has permission (OWNER or ADMIN)
+    user_role = await repo.get_user_role_in_org(user_id, org_id)
+    if not user_role or user_role not in [OrgRole.OWNER, OrgRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized to cancel invitations for this organization")
+
+    success = await repo.delete_organization_invite(org_id, invite_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+
+    await db.commit()
+
+    return Response(status_code=204)
