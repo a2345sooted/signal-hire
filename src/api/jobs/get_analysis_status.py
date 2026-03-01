@@ -54,8 +54,26 @@ async def get_analysis_status(
 
     analysis_repo = AnalysisRepository(db)
     
-    # Fallback to the latest analysis (likely for original resume)
-    analysis = await analysis_repo.get_analysis_for_candidate_job(candidate_id, job_id)
+    # Priority: If there's an optimized resume, we want its analysis status
+    from datetime import datetime, timezone, timedelta
+    from src.repositories.resume_repository import ResumeRepository
+    repo = ResumeRepository(db)
+    all_resumes = await repo.get_resumes_by_candidate_id(candidate_id)
+    
+    optimized_resume = None
+    if all_resumes:
+        matching = [r for r in all_resumes if getattr(r, "is_optimized", False) and str(getattr(r, "job_id", "")) == str(job_id)]
+        if matching:
+            matching.sort(key=lambda r: r.created_at if r.created_at else datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+            optimized_resume = matching[0]
+
+    analysis = None
+    if optimized_resume:
+        analysis = await analysis_repo.get_analysis_for_candidate_job_resume(candidate_id, job_id, optimized_resume.id)
+    
+    if not analysis:
+        # Fallback to the latest analysis (likely for original resume)
+        analysis = await analysis_repo.get_analysis_for_candidate_job(candidate_id, job_id)
     
     # Check if analysis exists and is completed
     if analysis:
@@ -72,11 +90,14 @@ async def get_analysis_status(
         
         if db_status == "processing":
             # Check if it's stuck (more than 10 minutes old)
-            from datetime import datetime, timezone, timedelta
             created_at_str = analysis.get("created_at")
             if created_at_str:
                 try:
-                    created_at = datetime.fromisoformat(created_at_str)
+                    if isinstance(created_at_str, datetime):
+                        created_at = created_at_str
+                    else:
+                        created_at = datetime.fromisoformat(created_at_str)
+                        
                     if created_at.tzinfo is None:
                         created_at = created_at.replace(tzinfo=timezone.utc)
                     
@@ -128,12 +149,18 @@ async def get_analysis_status(
                 error_message=active_task.error_message
             )
         elif active_task.status == "completed":
-             # If task is completed but we didn't find analysis above, it might be a race condition or partial failure
-             # but we should probably trust the analysis find logic more for "completed" state.
-             pass
+             # If task is completed in DB, we should double check the analysis record
+             # because it might have just finished but analysis query didn't catch it yet
+             return AnalysisStatusResponse(
+                success=True,
+                status="completed",
+                job_id=job_id,
+                candidate_id=candidate_id
+            )
 
     # Final fallback
-    if await is_analysis_active(job_id, candidate_id):
+    if await is_analysis_active(job_id, candidate_id) or \
+       await is_analysis_active(job_id, candidate_id, thread_id_id=f"{candidate_id}_opt"):
         return AnalysisStatusResponse(
             success=True,
             status="processing",

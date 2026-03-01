@@ -33,6 +33,13 @@ class TaskRecoveryService:
         if self._running:
             return
         self._running = True
+        
+        # Immediate recovery check on startup for any tasks cut off
+        try:
+            await self.recover_all_interrupted_tasks()
+        except Exception as e:
+            logger.error(f"Error during initial task recovery: {str(e)}", exc_info=True)
+
         self._task = asyncio.create_task(self._run_loop())
         logger.info(f"TaskRecoveryService started (interval: {self.interval_seconds}s, threshold: {self.stuck_threshold_minutes}m)")
 
@@ -56,7 +63,29 @@ class TaskRecoveryService:
                 logger.error(f"Error in TaskRecoveryService loop: {str(e)}", exc_info=True)
             await asyncio.sleep(self.interval_seconds)
 
+    async def recover_all_interrupted_tasks(self):
+        """Recovers all tasks that were in progress when the app stopped (no timeout check)."""
+        async with AsyncSessionLocal() as session:
+            # Find tasks stuck in 'starting' or 'processing'
+            stmt = select(ProcessingTask).where(
+                ProcessingTask.status.in_(["starting", "processing"])
+            )
+            result = await session.execute(stmt)
+            interrupted_tasks = result.scalars().all()
+            
+            if not interrupted_tasks:
+                return
+
+            logger.info(f"🚀 Found {len(interrupted_tasks)} interrupted tasks for immediate recovery")
+            
+            for task in interrupted_tasks:
+                try:
+                    await self._recover_task(session, task)
+                except Exception as e:
+                    logger.error(f"Failed to recover interrupted task {task.id} (type: {task.task_type}): {str(e)}", exc_info=True)
+
     async def recover_stuck_tasks(self):
+        """Periodic check for tasks that are stuck (exceeded timeout threshold)."""
         async with AsyncSessionLocal() as session:
             now = datetime.now(timezone.utc)
             threshold = now - timedelta(minutes=self.stuck_threshold_minutes)
@@ -72,13 +101,13 @@ class TaskRecoveryService:
             if not stuck_tasks:
                 return
 
-            logger.info(f"Found {len(stuck_tasks)} stuck tasks for recovery")
+            logger.info(f"⚠️ Found {len(stuck_tasks)} stuck tasks for periodic recovery")
             
             for task in stuck_tasks:
                 try:
                     await self._recover_task(session, task)
                 except Exception as e:
-                    logger.error(f"Failed to recover task {task.id} (type: {task.task_type}): {str(e)}", exc_info=True)
+                    logger.error(f"Failed to recover stuck task {task.id} (type: {task.task_type}): {str(e)}", exc_info=True)
 
     async def _recover_task(self, session: AsyncSession, task: ProcessingTask):
         logger.info(f"Recovering task {task.id} (type: {task.task_type}, job: {task.job_id})")
@@ -129,12 +158,12 @@ class TaskRecoveryService:
             
         # Trigger resume agent
         asyncio.create_task(run_resume_agent(
-            file_key=resume_obj.storage_key,
-            original_filename=resume_obj.original_filename,
+            file_key=resume_obj["storage_key"],
+            original_filename=resume_obj["filename"],
             job_id=task.job_id,
             resume_id=task.resume_id,
-            org_id=resume_obj.org_id if hasattr(resume_obj, 'org_id') else None,
-            raw_text=resume_obj.raw_text
+            org_id=None, # We don't easily have org_id here, agent should handle if None
+            raw_text=resume_obj["raw_text"]
         ))
 
     async def _recover_analysis_task(self, session: AsyncSession, task: ProcessingTask):
@@ -161,6 +190,11 @@ class TaskRecoveryService:
         result = await session.execute(select(Candidate).where(Candidate.id == task.candidate_id))
         candidate = result.scalar_one_or_none()
         candidate_location = candidate.location if candidate else None
+        
+        # Determine if it's an optimized resume analysis
+        thread_id_id = None
+        if resume_obj.get("is_optimized"):
+             thread_id_id = f"{task.candidate_id}_opt"
             
         # Trigger analyzer agent
         asyncio.create_task(run_analyzer_agent(
@@ -168,12 +202,13 @@ class TaskRecoveryService:
             candidate_id=task.candidate_id,
             job_data=job,
             resume_data={
-                "raw_text": resume_obj.raw_text,
-                "structured_data": resume_obj.structured_data,
+                "raw_text": resume_obj["raw_text"],
+                "structured_data": resume_obj["structured_data"],
                 "resume_id": str(task.resume_id)
             },
             candidate_notes=candidate_notes,
             candidate_location=candidate_location,
+            thread_id_id=thread_id_id,
             org_id=job.get("org_id")
         ))
 
@@ -206,8 +241,8 @@ class TaskRecoveryService:
             resume_id=task.resume_id,
             job_data=job,
             resume_data={
-                "raw_text": resume_obj.raw_text,
-                "structured_data": resume_obj.structured_data,
+                "raw_text": resume_obj["raw_text"],
+                "structured_data": resume_obj["structured_data"],
                 "resume_id": str(task.resume_id)
             },
             analysis_data=analysis_data,

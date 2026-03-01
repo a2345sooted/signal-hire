@@ -176,6 +176,15 @@ async def run_agent_with_retries(
                 if "analysis_id" in final_state:
                     logger.info(f"[{log_tag}] [{thread_id}] analysis_id value: {final_state.get('analysis_id')} (type: {type(final_state.get('analysis_id'))})")
                 
+                # Force clear state in checkpointer for the next retry to ensure a fresh start
+                try:
+                    from .utils import get_checkpoint_config
+                    checkpoint_config = get_checkpoint_config(thread_id)
+                    # We can't easily "delete" state via the protocol, but we can log that we are trying to recover.
+                    logger.info(f"[{log_tag}] [{thread_id}] Incomplete state detected. Forcing fresh start for next attempt.")
+                    state = None # This will trigger 'ainvoke(initial_state)' in the next loop iteration
+                except: pass
+
                 if attempt < max_retries:
                     attempt += 1
                     await asyncio.sleep(0.5)

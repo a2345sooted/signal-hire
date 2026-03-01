@@ -80,7 +80,12 @@ async def get_analysis(
         created_at_str = analysis.get("created_at")
         if created_at_str:
             try:
-                created_at = datetime.fromisoformat(created_at_str)
+                # Some repositories return ISO string, some return datetime. Handles both.
+                if isinstance(created_at_str, datetime):
+                    created_at = created_at_str
+                else:
+                    created_at = datetime.fromisoformat(created_at_str)
+                
                 # Ensure it's offset-aware for comparison
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
@@ -97,7 +102,9 @@ async def get_analysis(
 
     # 2. If no DB record or if it's explicitly 'processing', we check memory tasks
     if not is_processing and not analysis:
-        if await is_analysis_active(job_id, candidate_id):
+        # Check if either standard analysis or optimized analysis is active
+        if await is_analysis_active(job_id, candidate_id) or \
+           await is_analysis_active(job_id, candidate_id, thread_id_id=f"{candidate_id}_opt"):
             is_processing = True
 
     # 3. Check if optimizer for THIS job is processing

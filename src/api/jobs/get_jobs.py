@@ -45,6 +45,20 @@ async def get_jobs(
         # Check if a processing task is active for this job
         is_processing = await is_jd_processing_active(job["id"])
         
+        # Determine markdown content - handle stuck placeholder
+        markdown = job.get("markdown_content")
+        if markdown and markdown != "SIGNAL_PROCESSING":
+             # If we have actual content, we use it regardless of what is_jd_processing_active says
+             markdown_text = markdown
+        elif not is_processing and markdown == "SIGNAL_PROCESSING":
+             # This job is stuck with a placeholder. We don't trigger processing here
+             # to avoid heavy parallel background tasks in a list view, 
+             # but we return the raw text instead of the placeholder.
+             # The get_job (singular) endpoint will handle the actual re-triggering.
+             markdown_text = job.get("raw_text") or ""
+        else:
+             markdown_text = "SIGNAL_PROCESSING" if is_processing else (markdown or job.get("raw_text") or "")
+        
         resumes = []
         if job.get("resumes"):
             for resume in job["resumes"]:
@@ -74,7 +88,7 @@ async def get_jobs(
             "id": str(job["id"]),
             "title": job.get("title") or "Untitled Job",
             "client_name": job.get("client_name"),
-            "markdown_text": "SIGNAL_PROCESSING" if is_processing else (job.get("markdown_content") or job.get("raw_text") or ""),
+            "markdown_text": markdown_text,
             "raw_text": job.get("raw_text") or "",
             "location": job.get("location"),
             "work_arrangement": job.get("work_arrangement"),

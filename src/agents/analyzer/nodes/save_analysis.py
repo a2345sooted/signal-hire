@@ -39,6 +39,7 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
         "major_gaps": state.get("major_gaps"),
         "minor_gaps": state.get("minor_gaps"),
         "message": state.get("messages", [""])[-1] if state.get("messages") else "",
+        "status": "completed"
     }
 
     try:
@@ -46,9 +47,13 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
             repo = AnalysisRepository(db)
             
             # Use candidate_id, job_id, and resume_id as strings for safety then cast to UUID
-            c_id = uuid.UUID(str(candidate_id))
-            j_id = uuid.UUID(str(job_id))
-            r_id = uuid.UUID(str(resume_id)) if resume_id else None
+            try:
+                c_id = uuid.UUID(str(candidate_id))
+                j_id = uuid.UUID(str(job_id))
+                r_id = uuid.UUID(str(resume_id)) if resume_id else None
+            except ValueError as ve:
+                logger.error(f"[ANALYZER_AGENT] Invalid UUID format in state: candidate_id={candidate_id}, job_id={job_id}, resume_id={resume_id}")
+                return {"analysis_id": None} # Signal failure to completion check
 
             logger.info(f"[ANALYZER_AGENT] Checking for existing analysis. candidate_id={c_id}, job_id={j_id}, resume_id={r_id}")
             # Check for existing skeleton analysis
@@ -87,5 +92,5 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
         logger.error(f"[ANALYZER_AGENT] Failed to save analysis: {str(e)}", exc_info=True)
         # We must return SOMETHING that doesn't wipe the state, but we also need to signal failure
         # to the completion check if we want it to retry. 
-        # However, returning the original state might be safer for LangGraph state merging.
-        return state
+        # By returning a state with analysis_id explicitly None, we ensure the completion check fails.
+        return {"analysis_id": None}

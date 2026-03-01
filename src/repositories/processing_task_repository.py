@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -5,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from ..models.db_models import ProcessingTask
+
+logger = logging.getLogger(__name__)
 
 class ProcessingTaskRepository:
     def __init__(self, session: AsyncSession):
@@ -119,8 +122,10 @@ class ProcessingTaskRepository:
             # If task is older than timeout, it's considered stuck/inactive
             # updated_at might be None if just created, so fallback to created_at
             last_activity = task.updated_at or task.created_at
-            if (now - last_activity).total_seconds() / 60 < timeout_minutes:
+            if last_activity and (now - last_activity).total_seconds() / 60 < timeout_minutes:
                 active_found = True
                 break
+            else:
+                logger.warning(f"Task {task.id} (type: {task.task_type}) is stuck in {task.status} since {last_activity}. Ignoring as active.")
         
         return active_found

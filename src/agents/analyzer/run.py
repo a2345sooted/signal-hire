@@ -81,6 +81,9 @@ async def run_analyzer_agent(
             has_analysis_id = bool(analysis_id)
             if not has_analysis_id:
                  logger.warning(f"[{log_tag}] [{thread_id}] Completion check failed: analysis_id is missing from state. Value: {analysis_id} (type: {type(analysis_id)})")
+                 # Check if we have core results but just failed to save
+                 if state.get("score") is not None and state.get("major_hits"):
+                     logger.info(f"[{log_tag}] [{thread_id}] Core results exist, but analysis_id is missing. Likely a save failure.")
             return has_analysis_id
 
         result = await run_agent_with_retries(
@@ -120,8 +123,15 @@ async def cancel_analyzer_agent(job_id: uuid.UUID, candidate_id: uuid.UUID, resu
     thread_id = generate_thread_id("analysis", job_id, str(resume_id or candidate_id))
     return await cancel_agent_task(thread_id, _active_analysis_tasks, "ANALYZER_RUN")
 
-async def is_analysis_active(job_id: uuid.UUID, candidate_id: uuid.UUID) -> bool:
+async def is_analysis_active(job_id: uuid.UUID, candidate_id: uuid.UUID, thread_id_id: Optional[str] = None) -> bool:
     """Check if an analysis processing task is currently active for a given job_id and candidate_id."""
+    # We use memory check first for speed
+    thread_id = generate_thread_id("analysis", job_id, thread_id_id or str(candidate_id))
+    if thread_id in _active_analysis_tasks and not _active_analysis_tasks[thread_id].done():
+        return True
+
+    # Fallback to DB check
     async with AsyncSessionLocal() as db:
         repo = ProcessingTaskRepository(db)
+        # Note: repository uses job_id and candidate_id which is broader, but safer
         return await repo.is_task_active(task_type="analysis", job_id=job_id, candidate_id=candidate_id)

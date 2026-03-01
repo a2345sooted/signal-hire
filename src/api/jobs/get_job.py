@@ -49,35 +49,53 @@ async def get_job(
     
     # Check if a processing task is active for this job
     is_processing = await is_jd_processing_active(job_id)
+    
+    # Priority: If markdown content exists and is NOT the placeholder, we use it
+    # even if a task claims to be active (might be a redundant or stuck task).
+    markdown = job.get("markdown_content")
+    if markdown and markdown != "SIGNAL_PROCESSING":
+        is_processing = False
+        logger.info(f"Job {job_id} has valid markdown content. Ignoring active processing flag.")
 
     # If no markdown content and not processing, kick off the agent
-    if not job.get("markdown_content") and job.get("raw_text") and not is_processing:
-        logger.info(f"Job {job_id} has no markdown content but has raw_text. Clearing old placeholders and triggering JD agent.")
-        is_processing = True # Mark as processing so we return SIGNAL_PROCESSING or raw_text
+    if job.get("raw_text") and not is_processing:
+        # We need to decide if we should trigger JD agent.
+        # Cases:
+        # 1. markdown_content is None (never processed)
+        # 2. markdown_content is "SIGNAL_PROCESSING" (stuck or legacy)
+        markdown = job.get("markdown_content")
+        
+        if not markdown or markdown == "SIGNAL_PROCESSING":
+            logger.info(f"Job {job_id} has no valid markdown content (value: {markdown}) but has raw_text. Clearing old placeholders and triggering JD agent.")
+            is_processing = True # Mark as processing so we return SIGNAL_PROCESSING or raw_text
 
-        # Clear any old placeholders to ensure consistency
-        await repo.update_job(
-            job_id=job_id,
-            markdown_content=None,
-            structured_data=None
-        )
+            # Clear any old placeholders to ensure consistency
+            await repo.update_job(
+                job_id=job_id,
+                markdown_content=None,
+                structured_data=None
+            )
 
-        # Pre-register the task in the database
-        task_repo = ProcessingTaskRepository(db)
-        await task_repo.create_task(
-            task_id=job_id,
-            task_type="jd",
-            job_id=job_id,
-            status="starting"
-        )
-        await db.commit()
+            # Pre-register the task in the database
+            from src.agents.utils import generate_thread_id, get_task_id
+            thread_id = generate_thread_id("jd", job_id)
+            task_id = get_task_id(thread_id)
 
-        background_tasks.add_task(
-            run_jd_agent,
-            raw_text=job.get("raw_text"),
-            job_id=job_id,
-            org_id=org.id
-        )
+            task_repo = ProcessingTaskRepository(db)
+            await task_repo.create_task(
+                task_id=task_id,
+                task_type="jd",
+                job_id=job_id,
+                status="starting"
+            )
+            await db.commit()
+
+            background_tasks.add_task(
+                run_jd_agent,
+                raw_text=job.get("raw_text"),
+                job_id=job_id,
+                org_id=org.id
+            )
 
     # Use the JobResponse model to ensure all fields are returned
     job_data = {

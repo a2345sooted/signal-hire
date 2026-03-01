@@ -133,7 +133,8 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
             try:
                 # Pre-register the task in the database for UI tracking
                 # We use a unique thread_id for the optimized analysis
-                analysis_thread_id = generate_thread_id("analysis", uuid.UUID(job_id), f"{candidate_id}_opt")
+                analysis_thread_id_id = f"{candidate_id}_opt"
+                analysis_thread_id = generate_thread_id("analysis", uuid.UUID(job_id), analysis_thread_id_id)
                 analysis_task_id = get_task_id(analysis_thread_id)
 
                 # Fetch candidate notes/location for analysis context
@@ -191,7 +192,7 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
                     },
                     candidate_notes=candidate_notes,
                     candidate_location=candidate_location,
-                    thread_id_id=f"{candidate_id}_opt", # Use the same stable identifier
+                    thread_id_id=analysis_thread_id_id, # Use the same stable identifier
                     org_id=org_id
                 ))
             except Exception as analysis_trigger_error:
