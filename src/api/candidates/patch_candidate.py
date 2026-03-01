@@ -59,6 +59,27 @@ async def patch_candidate(
     
     if success:
         await db.commit()
+
+        # Trigger re-vectoring of the latest resume
+        current_resume = await repo.get_latest_resume(candidate_id)
+        if current_resume:
+            from src.agents.resume_processor.run import run_resume_agent
+            from fastapi import BackgroundTasks
+            
+            # Since we don't have BackgroundTasks passed in the current signature, 
+            # let's see if we should add it or use asyncio.create_task.
+            # The current signature does NOT have background_tasks.
+            
+            # Re-run resume agent with existing data to refresh embeddings
+            import asyncio
+            asyncio.create_task(run_resume_agent(
+                resume_id=uuid.UUID(current_resume["id"]),
+                candidate_id=candidate_id,
+                raw_text=current_resume.get("raw_text"),
+                org_id=org.id
+            ))
+            logger.info(f"Triggered re-vectoring for candidate {candidate_id} resume {current_resume['id']}")
+
         return {"success": True, "message": "Candidate updated successfully"}
     else:
         return {"success": False, "message": "Failed to update candidate"}

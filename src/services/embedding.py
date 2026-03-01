@@ -51,5 +51,43 @@ class EmbeddingService:
         return [item.embedding for item in response.data]
 
     @staticmethod
-    def prepare_resume_text_for_embedding(structured_data: dict) -> str:
-        return json.dumps(structured_data, indent=2)
+    def prepare_resume_text_for_embedding(structured_data: dict, candidate_data: dict = None, notes: list = None) -> str:
+        data = {
+            "resume": structured_data
+        }
+        if candidate_data:
+            # Only include relevant metadata
+            data["candidate_metadata"] = {
+                "name": candidate_data.get("name"),
+                "location": candidate_data.get("location"),
+                "citizenship": candidate_data.get("citizenship"),
+                "engagement_types": candidate_data.get("engagement_types"),
+                "work_preference": candidate_data.get("work_preference"),
+                "open_to_relocation": candidate_data.get("open_to_relocation")
+            }
+        if notes:
+            data["candidate_notes"] = [n.get("content") for n in notes if n.get("content")]
+            
+        return json.dumps(data, indent=2)
+
+    @staticmethod
+    def prepare_job_text_for_embedding(structured_data: dict, job_data: dict = None, notes: list = None) -> str:
+        data = {
+            "job": structured_data or {}
+        }
+        if job_data:
+            data["job_metadata"] = {
+                "title": job_data.get("title"),
+                "location": job_data.get("location"),
+                "work_arrangement": job_data.get("work_arrangement"),
+                "hybrid_days_per_week": job_data.get("hybrid_days_per_week"),
+                "pay_range_min": job_data.get("pay_range_min"),
+                "pay_range_max": job_data.get("pay_range_max"),
+                "pay_type": job_data.get("pay_type"),
+                "employment_type": job_data.get("employment_type"),
+                "offers_relocation": job_data.get("offers_relocation")
+            }
+        if notes:
+            data["job_notes"] = [n.get("content") for n in notes if n.get("content")]
+            
+        return json.dumps(data, indent=2)

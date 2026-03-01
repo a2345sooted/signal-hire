@@ -66,6 +66,19 @@ async def delete_candidate_note(
         
     await db.commit()
     
+    # Trigger re-vectoring of the latest resume to reflect note deletion
+    current_resume = await repo.get_latest_resume(candidate_id)
+    if current_resume:
+        from src.agents.resume_processor.run import run_resume_agent
+        import asyncio
+        asyncio.create_task(run_resume_agent(
+            resume_id=uuid.UUID(current_resume["id"]),
+            candidate_id=candidate_id,
+            raw_text=current_resume.get("raw_text"),
+            org_id=org.id
+        ))
+        logger.info(f"Triggered re-vectoring for candidate {candidate_id} due to note deletion")
+
     return {
         "success": True,
         "note_id": str(note_id)

@@ -67,6 +67,16 @@ async def patch_job_note(
         
     await db.commit()
     
+    # Trigger re-vectoring of the job to include updated note
+    from src.agents.jd_processor.run import run_jd_agent
+    import asyncio
+    asyncio.create_task(run_jd_agent(
+        job_id=job_id,
+        raw_text=job.get("raw_text"),
+        org_id=org.id
+    ))
+    logger.info(f"Triggered re-vectoring for job {job_id} due to note update")
+    
     return {
         "success": True,
         "note_id": str(note_id)

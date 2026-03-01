@@ -72,7 +72,24 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
     try:
         # 1. Generate legacy embedding for the resume summary
         logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Generating legacy embedding for resume summary...")
-        prepared_text = json.dumps(structured_data, indent=2)
+        
+        # We'll need DB access to get candidate info if it exists
+        candidate_id = state.get("candidate_id")
+        candidate_data = None
+        candidate_notes = []
+        
+        async with AsyncSessionLocal() as db:
+            from ....repositories.candidate_repository import CandidateRepository
+            tmp_repo = CandidateRepository(db)
+            if candidate_id:
+                candidate_data = await tmp_repo.get_candidate_by_id(candidate_id)
+                candidate_notes = await tmp_repo.get_notes(candidate_id)
+        
+        prepared_text = embedding_service.prepare_resume_text_for_embedding(
+            structured_data, 
+            candidate_data=candidate_data, 
+            notes=candidate_notes
+        )
         legacy_embedding = await embedding_service.generate_embedding(prepared_text)
         logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Legacy embedding generated successfully.")
 

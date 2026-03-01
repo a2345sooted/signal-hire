@@ -50,7 +50,28 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
     try:
         # 1. Generate legacy embedding for the job description
         logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Generating legacy embedding for JD...")
-        prepared_text = json.dumps(structured_data_dict, indent=2)
+        
+        job_notes = []
+        async with AsyncSessionLocal() as db:
+            tmp_repo = JobRepository(db)
+            if job_id:
+                job_notes = await tmp_repo.get_job_notes(job_id)
+
+        prepared_text = embedding_service.prepare_job_text_for_embedding(
+            structured_data_dict, 
+            job_data={
+                "title": job_title,
+                "location": state.get("location") or (details_dict.get("location") if details_dict else None),
+                "work_arrangement": state.get("work_arrangement") or (details_dict.get("arrangement") if details_dict else None),
+                "hybrid_days_per_week": state.get("hybrid_days_per_week") or (details_dict.get("hybrid_days_week") if details_dict else None),
+                "pay_range_min": state.get("pay_range_min") or (details_dict.get("pay_range_min") if details_dict else None),
+                "pay_range_max": state.get("pay_range_max") or (details_dict.get("pay_range_max") if details_dict else None),
+                "pay_type": state.get("pay_type") or (details_dict.get("pay_type") if details_dict else None),
+                "employment_type": state.get("employment_type") or (", ".join(details_dict.get("employment_type", [])) if details_dict else None),
+                "offers_relocation": state.get("offers_relocation") or (details_dict.get("offers_relocation", False) if details_dict else False)
+            },
+            notes=job_notes
+        )
         legacy_embedding = await embedding_service.generate_embedding(prepared_text)
         logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Legacy embedding generated successfully.")
 
