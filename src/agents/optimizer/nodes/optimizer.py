@@ -22,6 +22,7 @@ async def optimizer_node(state: OptimizerState, config: RunnableConfig = None):
     
     job_data = state.get("job_data", {})
     resume_data = state.get("resume_data", {})
+    analysis_data = state.get("analysis_data", {})
     plan = state.get("optimization_plan")
     
     if not plan:
@@ -30,14 +31,24 @@ async def optimizer_node(state: OptimizerState, config: RunnableConfig = None):
     resume_structured = resume_data.get("structured_data", {})
     job_text = job_data.get("raw_text") or json.dumps(job_data.get("structured_data", {}))
     plan_json = plan.model_dump_json(indent=2)
+    
+    analysis_content = analysis_data.get("content", {})
+    analysis_message = analysis_content.get("message", "No previous analysis summary available.")
+    hiring_notes = analysis_content.get("hiring_notes", "No previous hiring notes available.")
 
-    prompt = f"""You are an expert Resume Writer. Your task is to rewrite the candidate's structured resume data based on a specific Job Description and an Optimization Plan.
+    prompt = f"""You are an expert Resume Writer. Your task is to rewrite the candidate's structured resume data based on a specific Job Description, an Optimization Plan, and previous Match Analysis.
 
 JOB DESCRIPTION:
 {job_text}
 
 ORIGINAL RESUME DATA:
 {json.dumps(resume_structured, indent=2)}
+
+MATCH ANALYSIS SUMMARY:
+{analysis_message}
+
+HIRING NOTES & OPTIMIZATION THOUGHTS:
+{hiring_notes}
 
 OPTIMIZATION PLAN:
 {plan_json}

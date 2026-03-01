@@ -26,7 +26,9 @@ async def planner_node(state: OptimizerState, config: RunnableConfig = None):
     
     job_text = job_data.get("raw_text") or json.dumps(job_data.get("structured_data", {}))
     resume_text = resume_data.get("raw_text") or json.dumps(resume_data.get("structured_data", {}))
-    analysis_content = json.dumps(analysis_data.get("content", {}))
+    analysis_content = analysis_data.get("content", {})
+    analysis_message = analysis_content.get("message", "No previous analysis summary available.")
+    hiring_notes = analysis_content.get("hiring_notes", "No previous hiring notes available.")
 
     prompt = f"""You are a Strategic Career Coach and ATS Specialist. Your goal is to create a detailed PLAN to optimize a candidate's resume for a specific Job Description.
 
@@ -36,8 +38,11 @@ JOB DESCRIPTION:
 CANDIDATE RESUME:
 {resume_text}
 
-PREVIOUS MATCH ANALYSIS:
-{analysis_content}
+PREVIOUS MATCH ANALYSIS SUMMARY:
+{analysis_message}
+
+PREVIOUS HIRING NOTES & OPTIMIZATION THOUGHTS:
+{hiring_notes}
 
 TASK:
 1. Identify specific bullet points in the resume that should be rewritten to better mirror the JD's language while remaining truthful.
