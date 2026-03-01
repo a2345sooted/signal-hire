@@ -75,7 +75,7 @@ async def run_agent_with_retries(
 
         except asyncio.CancelledError:
             logger.info(f"[{log_tag}] [{thread_id}] Agent execution cancelled.")
-            raise
+            return {}  # type: ignore
         except Exception as e:
             logger.warning(f"[{log_tag}] [{thread_id}] ⚠️ Attempt {attempt} failed: {str(e)}")
             if attempt >= max_retries:

@@ -26,6 +26,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
     # Validate both parallel tracks completed successfully
     structured_data_dict = state.get("structured_data")
     markdown_content = state.get("markdown")
+    details_dict = state.get("details")
     job_id = state.get("job_id")
 
     if not structured_data_dict:
@@ -38,6 +39,8 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
             f"Markdown generator node failed to produce markdown. "
             f"State keys present: {list(state.keys())}"
         )
+    # Note: details_dict is optional for now, we don't raise error if it's missing, 
+    # but we expect it since we added it to the graph.
 
     logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Validate and Save Node - Parallel tracks synchronized and validated.")
 
@@ -74,28 +77,74 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                 existing_job = await repo.get_job_by_id(job_id)
                 if existing_job:
                     logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Updating existing job {job_id}.")
-                    await repo.update_job(
-                        job_id=job_id,
-                        title=job_title,
-                        structured_data=structured_data_dict,
-                        # Pass one for legacy backward compatibility if repo still needs it
-                        embedding=legacy_embedding,
-                        markdown_content=markdown_content,
-                        org_id=state.get("org_id"),
-                        raw_text=state.get("raw_text")
-                    )
+                    
+                    # Update job fields if they are currently null or blank in the database
+                    update_kwargs = {
+                        "job_id": job_id,
+                        "title": job_title,
+                        "structured_data": structured_data_dict,
+                        "embedding": legacy_embedding,
+                        "markdown_content": markdown_content,
+                        "org_id": state.get("org_id"),
+                        "raw_text": state.get("raw_text"),
+                        "details": details_dict
+                    }
+                    
+                    if details_dict:
+                        # Map details to top-level fields if currently null
+                        if not existing_job.get("location") and details_dict.get("location"):
+                            update_kwargs["location"] = details_dict.get("location")
+                        if not existing_job.get("work_arrangement") and details_dict.get("arrangement"):
+                            update_kwargs["work_arrangement"] = details_dict.get("arrangement")
+                        if existing_job.get("hybrid_days_per_week") is None and details_dict.get("hybrid_days_week") is not None:
+                            update_kwargs["hybrid_days_per_week"] = details_dict.get("hybrid_days_week")
+                        if existing_job.get("pay_range_min") is None and details_dict.get("pay_range_min") is not None:
+                            update_kwargs["pay_range_min"] = details_dict.get("pay_range_min")
+                        if existing_job.get("pay_range_max") is None and details_dict.get("pay_range_max") is not None:
+                            update_kwargs["pay_range_max"] = details_dict.get("pay_range_max")
+                        if not existing_job.get("pay_type") and details_dict.get("pay_type"):
+                            update_kwargs["pay_type"] = details_dict.get("pay_type")
+                        
+                        # employment_type in JobDetailsSchema is a list, but top-level Job.employment_type is a string
+                        # For consistency with candidate work preferences, let's take the first or comma-separated
+                        extracted_emp_types = details_dict.get("employment_type", [])
+                        if not existing_job.get("employment_type") and extracted_emp_types:
+                             update_kwargs["employment_type"] = ", ".join(extracted_emp_types)
+                        
+                        # offers_relocation is a boolean with False as default. 
+                        # We only update to True if it's currently False and extracted is True
+                        if not existing_job.get("offers_relocation") and details_dict.get("offers_relocation") is True:
+                            update_kwargs["offers_relocation"] = True
+
+                    await repo.update_job(**update_kwargs)
                 else:
                     logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Creating new job with ID {job_id}.")
                     # Use the provided job_id for creation
-                    await repo.create_job_with_id(
-                        job_id=job_id,
-                        raw_text=state.get("raw_text"),
-                        title=job_title,
-                        structured_data=structured_data_dict,
-                        embedding=legacy_embedding,
-                        markdown_content=markdown_content,
-                        org_id=state.get("org_id")
-                    )
+                    # If we have details, we should also use them for the top-level fields
+                    creation_kwargs = {
+                        "job_id": job_id,
+                        "raw_text": state.get("raw_text"),
+                        "title": job_title,
+                        "structured_data": structured_data_dict,
+                        "embedding": legacy_embedding,
+                        "markdown_content": markdown_content,
+                        "org_id": state.get("org_id"),
+                        "details": details_dict
+                    }
+                    
+                    if details_dict:
+                        creation_kwargs.update({
+                            "location": details_dict.get("location"),
+                            "work_arrangement": details_dict.get("arrangement"),
+                            "hybrid_days_per_week": details_dict.get("hybrid_days_week"),
+                            "pay_range_min": details_dict.get("pay_range_min"),
+                            "pay_range_max": details_dict.get("pay_range_max"),
+                            "pay_type": details_dict.get("pay_type"),
+                            "employment_type": ", ".join(details_dict.get("employment_type", [])),
+                            "offers_relocation": details_dict.get("offers_relocation", False)
+                        })
+
+                    await repo.create_job_with_id(**creation_kwargs)
                 
                 # Store all new embeddings
                 # Note: update_job might have replaced the legacy one, but we also want the chunks
@@ -112,6 +161,67 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
             
             await db.commit()
             
+            # 3. Trigger re-analysis for all attached candidates
+            from ....agents.analyzer.run import run_analyzer_agent
+            from ....repositories.candidate_repository import CandidateRepository
+            from ....repositories.analysis_repository import AnalysisRepository
+            import asyncio
+            import uuid
+
+            candidate_repo = CandidateRepository(db)
+            analysis_repo = AnalysisRepository(db)
+            attached_candidates = await repo.get_attached_candidates(job_id)
+            
+            job_data_for_analysis = await repo.get_job_by_id(job_id)
+
+            for candidate in attached_candidates:
+                candidate_id = uuid.UUID(candidate["id"])
+                current_resume = await candidate_repo.get_current_resume(candidate_id)
+                
+                if current_resume:
+                    logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Triggering re-analysis for candidate {candidate_id} on job {job_id}")
+                    
+                    # Create/Update skeleton analysis record
+                    skeleton_content = {"status": "processing", "message": "Job description updated. Re-analyzing..."}
+                    
+                    # Check if analysis already exists for this resume/job combo
+                    existing = await analysis_repo.get_analysis_for_candidate_job_resume(
+                        candidate_id=candidate_id,
+                        job_id=job_id,
+                        resume_id=uuid.UUID(current_resume["id"])
+                    )
+                    
+                    if existing:
+                        await analysis_repo.update_analysis(
+                            analysis_id=uuid.UUID(existing["id"]),
+                            content=skeleton_content,
+                            resume_id=uuid.UUID(current_resume["id"])
+                        )
+                    else:
+                        await analysis_repo.create_analysis(
+                            candidate_id=candidate_id,
+                            job_id=job_id,
+                            content=skeleton_content,
+                            resume_id=uuid.UUID(current_resume["id"])
+                        )
+                    await db.commit()
+                    
+                    asyncio.create_task(
+                        run_analyzer_agent(
+                            job_id=job_id,
+                            candidate_id=candidate_id,
+                            job_data=job_data_for_analysis,
+                            resume_data={
+                                "raw_text": current_resume["raw_text"],
+                                "structured_data": current_resume["structured_data"],
+                                "resume_id": current_resume["id"]
+                            },
+                            org_id=state.get("org_id")
+                        )
+                    )
+                else:
+                    logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Skipping analysis for candidate {candidate_id} - no current resume.")
+
         logger.info(f"[JD_PROCESSOR] [{clean_id_str}] Job description finalized with ID: {job_id}")
         
     except Exception as e:

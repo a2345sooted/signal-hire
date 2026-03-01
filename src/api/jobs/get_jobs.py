@@ -80,6 +80,7 @@ async def get_jobs(
             "pay_type": job.get("pay_type"),
             "employment_type": job.get("employment_type"),
             "offers_relocation": job.get("offers_relocation") or False,
+            "details": job.get("details"),
             "created_at": job.get("created_at"),
             "resumes": resumes,
             "resume_count": len(resumes),

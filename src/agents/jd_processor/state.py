@@ -10,6 +10,7 @@ class JDState(BaseAgentState):
     # Processed Data
     markdown: str
     structured_data: Optional[Dict[str, Any]]
+    details: Optional[Dict[str, Any]]
     
     # DB Results
     job_id: Optional[uuid.UUID]

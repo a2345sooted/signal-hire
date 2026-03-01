@@ -8,6 +8,7 @@ from src.repositories.job_repository import JobRepository
 from src.repositories.resume_repository import ResumeRepository
 from src.repositories.analysis_repository import AnalysisRepository
 from src.repositories.candidate_repository import CandidateRepository
+from src.agents.analyzer.run import is_analysis_active
 
 logger = logging.getLogger(__name__)
 
@@ -18,43 +19,46 @@ async def get_analysis(
 ):
     """
     Retrieve analysis for a specific job and candidate.
-    Returns stubbed data for now to support UI development while background processing is active.
     """
     logger.info(f"Fetching analysis for job: {job_id}, candidate: {candidate_id}")
     
-    # Stubbed analysis content
-    analysis_content = {
-        "score": 85,
-        "score_breakdown": {
-            "critical_requirements": 35,
-            "important_requirements": 20,
-            "nice_to_have": 8,
-            "experience_level": 12,
-            "presentation": 10
-        },
-        "scoring_reasoning": "Strong match for core technical requirements. Candidate shows excellent proficiency in Python and cloud architectures.",
-        "major_hits": [
-            "Expert Python knowledge",
-            "5+ years AWS experience",
-            "Strong SQL background"
-        ],
-        "minor_hits": [
-            "Familiarity with Docker",
-            "Good communication skills"
-        ],
-        "major_gaps": [
-            "Missing Kubernetes experience"
-        ],
-        "minor_gaps": [
-            "No direct experience with RAG systems"
-        ],
-        "message": "### Aline's Analysis\n\nJohn is a high-caliber candidate with a robust background in backend engineering. His 5+ years of AWS experience align perfectly with your infrastructure needs.\n\n**Recommendation**: Proceed to technical interview, focusing on his architectural decisions in previous projects."
-    }
+    analysis_repo = AnalysisRepository(db)
+    analysis = await analysis_repo.get_analysis_for_candidate_job(candidate_id, job_id)
+    
+    # Check if analysis is missing OR in a processing state
+    is_processing = False
+    
+    # If no DB record or if it's explicitly 'processing', we check memory tasks
+    from src.agents.resume_processor.run import is_resume_processing_active
+    if is_resume_processing_active(candidate_id=candidate_id):
+        is_processing = True
+    elif analysis:
+        content = analysis.get("content", {})
+        if content.get("status") == "processing":
+            is_processing = True
+    else:
+        # If no DB record, check memory registry for analyzer task
+        if is_analysis_active(job_id, candidate_id):
+            is_processing = True
+            
+    if is_processing:
+        return {
+            "success": True,
+            "status": "processing",
+            "analysis": "SIGNAL_PROCESSING"
+        }
+        
+    if not analysis:
+        return {
+            "success": False,
+            "message": "Analysis not found",
+            "status": "pending"
+        }
     
     return {
         "success": True,
-        "analysis": analysis_content,
+        "analysis": analysis["content"],
         "candidate_id": str(candidate_id),
         "job_id": str(job_id),
-        "status": "completed"  # Simulating completed status for the stub
+        "status": "completed"
     }

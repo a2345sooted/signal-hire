@@ -42,6 +42,9 @@ class JobBrief(BaseModel):
     id: uuid.UUID
     title: str | None
     status: str | None = "attached"
+    analysis_status: Optional[str] = "pending"
+    analysis_score: Optional[int] = None
+    is_analysis_processing: bool = False
 
 class CandidateResponse(BaseModel):
     id: uuid.UUID
@@ -54,7 +57,8 @@ class CandidateResponse(BaseModel):
     engagement_types: list[str] = []
     work_preference: list[str] = []
     open_to_relocation: bool = False
-    created_at: datetime
+    created_at: Optional[datetime] = None
+    current_resume_structured_data: Optional[dict] = None
     attached_jobs: list[JobBrief] = []
     recommended_jobs: list[JobBrief] = []
     notes: list[NoteResponse] = []

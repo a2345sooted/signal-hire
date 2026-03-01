@@ -63,6 +63,7 @@ async def get_job(
         "pay_type": job.get("pay_type"),
         "employment_type": job.get("employment_type"),
         "offers_relocation": job.get("offers_relocation") or False,
+        "details": job.get("details"),
         "created_at": job["created_at"].isoformat() if isinstance(job.get("created_at"), datetime) else job.get("created_at"),
         "notes": job.get("notes") or [],
         "num_candidates": 0,
@@ -80,4 +81,7 @@ async def get_job(
     elif pay_max is not None:
         job_data["pay"] = f"Up to ${pay_max:,}"
 
-    return JobResponse.model_validate(job_data)
+    return {
+        "success": True,
+        "job": JobResponse.model_validate(job_data)
+    }

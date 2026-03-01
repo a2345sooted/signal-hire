@@ -26,7 +26,7 @@ async def run_analyzer_agent(
     Runs the full analyzer agent.
     Returns the final state dictionary.
     """
-    thread_id = generate_thread_id("analysis", job_id, thread_id_id)
+    thread_id = generate_thread_id("analysis", job_id, thread_id_id or str(candidate_id))
     log_tag = "ANALYZER_RUN"
     logger.info(f"[{log_tag}] [{thread_id}] Starting analyzer agent for candidate {candidate_id}...")
     
@@ -49,6 +49,7 @@ async def run_analyzer_agent(
             "thread_id": thread_id,
             "candidate_id": str(candidate_id),
             "job_id": str(job_id),
+            "resume_id": str(resume_data.get("resume_id")) if resume_data.get("resume_id") else None,
             "org_id": org_id,
             "resume_data": resume_data,
             "job_data": job_data,
@@ -87,7 +88,12 @@ async def run_analyzer_agent(
         if _active_analysis_tasks.get(thread_id) == task:
             del _active_analysis_tasks[thread_id]
 
-async def cancel_analyzer_agent(job_id: uuid.UUID):
+async def cancel_analyzer_agent(job_id: uuid.UUID, candidate_id: uuid.UUID):
     """Cancels a running analyzer agent task."""
-    thread_id = generate_thread_id("analysis", job_id)
+    thread_id = generate_thread_id("analysis", job_id, str(candidate_id))
     return await cancel_agent_task(thread_id, _active_analysis_tasks, "ANALYZER_RUN")
+
+def is_analysis_active(job_id: uuid.UUID, candidate_id: uuid.UUID) -> bool:
+    """Check if an analysis processing task is currently active for a given job_id and candidate_id."""
+    thread_id = generate_thread_id("analysis", job_id, str(candidate_id))
+    return thread_id in _active_analysis_tasks

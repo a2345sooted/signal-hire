@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 
 from langchain_core.runnables import RunnableConfig
 
@@ -100,10 +101,11 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             repo = ResumeRepository(db)
             
             # 1. Handle Candidate
-            candidate_name = structured_data.get("contact", {}).get("name", "Unknown Candidate")
-            candidate_email = structured_data.get("contact", {}).get("email", "unknown@unknown.com")
+            candidate_id = state.get("candidate_id")
             
             # Map new fields from structured_data
+            candidate_name = structured_data.get("contact", {}).get("name")
+            candidate_email = structured_data.get("contact", {}).get("email")
             phone = structured_data.get("contact", {}).get("phone")
             location = structured_data.get("contact", {}).get("location")
             linkedin_url = structured_data.get("contact", {}).get("linkedin")
@@ -112,23 +114,48 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             work_preference = structured_data.get("work_preference")
             open_to_relocation = structured_data.get("open_to_relocation")
 
-            candidate_id = await candidate_repo.get_or_create_candidate_by_name(
-                candidate_name, 
-                email=candidate_email,
-                org_id=state.get("org_id")
-            )
+            if not candidate_id:
+                logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] No candidate_id in state. Using get_or_create_candidate_by_name as fallback.")
+                candidate_id = await candidate_repo.get_or_create_candidate_by_name(
+                    candidate_name or "Unknown Candidate", 
+                    email=candidate_email or "unknown@unknown.com",
+                    org_id=state.get("org_id")
+                )
             
             # Update candidate with full info extracted from resume
-            await candidate_repo.update_candidate(
-                candidate_id=candidate_id,
-                phone=phone,
-                location=location,
-                linkedin_url=linkedin_url,
-                citizenship=citizenship,
-                engagement_types=engagement_types,
-                work_preference=work_preference,
-                open_to_relocation=open_to_relocation
-            )
+            # We ONLY update fields if they are currently null or empty in the database.
+            candidate_to_update = await candidate_repo.get_candidate_by_id(candidate_id)
+            update_kwargs = {}
+            if candidate_to_update:
+                # Basic info
+                if not candidate_to_update.get("name") and candidate_name:
+                    update_kwargs["name"] = candidate_name
+                if not candidate_to_update.get("email") and candidate_email:
+                    update_kwargs["email"] = candidate_email
+                if not candidate_to_update.get("phone") and phone:
+                    update_kwargs["phone"] = phone
+                if not candidate_to_update.get("location") and location:
+                    update_kwargs["location"] = location
+                if not candidate_to_update.get("linkedin_url") and linkedin_url:
+                    update_kwargs["linkedin_url"] = linkedin_url
+                
+                # New fields
+                if not candidate_to_update.get("citizenship") and citizenship:
+                    update_kwargs["citizenship"] = citizenship
+                if not candidate_to_update.get("engagement_types") and engagement_types:
+                    update_kwargs["engagement_types"] = engagement_types
+                if not candidate_to_update.get("work_preference") and work_preference:
+                    update_kwargs["work_preference"] = work_preference
+                
+                # Note: open_to_relocation is a boolean, so we only update if it's currently False (default) and extracted is True
+                if not candidate_to_update.get("open_to_relocation") and open_to_relocation is True:
+                    update_kwargs["open_to_relocation"] = open_to_relocation
+
+            if update_kwargs:
+                await candidate_repo.update_candidate(
+                    candidate_id=candidate_id,
+                    **update_kwargs
+                )
             
             # 2. Handle Resume
             existing_resume_id = state.get("resume_id")
@@ -171,33 +198,103 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
             
             await db.commit()
             
-        # 1. Trigger the Analyzer Agent
+        # 1. Trigger the Analyzer Agent for the specific job if provided
         job_id = state.get("job_id")
+        from ....agents.analyzer.run import run_analyzer_agent
+        from ....repositories.job_repository import JobRepository
+        from ....repositories.analysis_repository import AnalysisRepository
+        import asyncio
+
         if job_id:
-            from ....agents.analyzer.run import run_analyzer_agent
-            from ....repositories.job_repository import JobRepository
-            
             async with AsyncSessionLocal() as db:
                 jd_repo = JobRepository(db)
+                analysis_repo = AnalysisRepository(db)
                 job_data = await jd_repo.get_job_by_id(job_id)
                 
-            if job_data:
-                # We run it in the background as a separate task
-                import asyncio
-                logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for job_id: {job_id}, candidate_id: {candidate_id}")
-                asyncio.create_task(
-                    run_analyzer_agent(
-                        job_id=job_id,
+                if job_data:
+                    # Check if analysis already exists for this resume/job combo
+                    existing = await analysis_repo.get_analysis_for_candidate_job_resume(
                         candidate_id=candidate_id,
-                        job_data=job_data,
-                        resume_data={
-                            "raw_text": raw_text,
-                            "structured_data": structured_data
-                        },
-                        personal_info_mismatch_question=state.get("personal_info_mismatch_question"),
-                        org_id=state.get("org_id")
+                        job_id=job_id,
+                        resume_id=resume_id
                     )
+                    
+                    if not existing:
+                        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for job_id: {job_id}, candidate_id: {candidate_id}")
+                        
+                        # Create a skeleton analysis record
+                        skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
+                        await analysis_repo.create_analysis(
+                            candidate_id=candidate_id,
+                            job_id=job_id,
+                            content=skeleton_content,
+                            resume_id=resume_id
+                        )
+                        await db.commit()
+                        
+                        asyncio.create_task(
+                            run_analyzer_agent(
+                                job_id=job_id,
+                                candidate_id=candidate_id,
+                                job_data=job_data,
+                                resume_data={
+                                    "raw_text": raw_text,
+                                    "structured_data": structured_data,
+                                    "resume_id": str(resume_id)
+                                },
+                                personal_info_mismatch_question=state.get("personal_info_mismatch_question"),
+                                org_id=state.get("org_id")
+                            )
+                        )
+                    else:
+                        logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Analysis already exists for job {job_id}")
+        
+        # 2. ALSO trigger for any other jobs this candidate is already attached to
+        async with AsyncSessionLocal() as db:
+            jd_repo = JobRepository(db)
+            analysis_repo = AnalysisRepository(db)
+            attached_jobs = await jd_repo.get_attached_jobs(candidate_id)
+            
+            for job in attached_jobs:
+                # Skip the job we already handled above
+                if job_id and str(job["id"]) == str(job_id):
+                    continue
+                
+                # Check if analysis already exists for this resume/job combo
+                existing = await analysis_repo.get_analysis_for_candidate_job_resume(
+                    candidate_id=candidate_id,
+                    job_id=uuid.UUID(job["id"]),
+                    resume_id=resume_id
                 )
+                
+                if not existing:
+                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Triggering Analyzer Agent for ATTACHED job_id: {job['id']}, candidate_id: {candidate_id}")
+                    
+                    # Create a skeleton analysis record
+                    skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
+                    await analysis_repo.create_analysis(
+                        candidate_id=candidate_id,
+                        job_id=uuid.UUID(job["id"]),
+                        content=skeleton_content,
+                        resume_id=resume_id
+                    )
+                    await db.commit() # Commit each skeleton so it's visible to get_analysis
+                    
+                    asyncio.create_task(
+                        run_analyzer_agent(
+                            job_id=uuid.UUID(job["id"]),
+                            candidate_id=candidate_id,
+                            job_data=job,
+                            resume_data={
+                                "raw_text": raw_text,
+                                "structured_data": structured_data,
+                                "resume_id": str(resume_id)
+                            },
+                            org_id=state.get("org_id")
+                        )
+                    )
+                else:
+                    logger.info(f"[RESUME_PROCESSOR] [{clean_id_str}] Analysis already exists for attached job {job['id']}")
 
         if thread_id_str != NO_THREAD_ID:
             pass

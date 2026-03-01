@@ -43,7 +43,8 @@ class CandidateRepository:
 
     async def get_candidate_by_id(self, candidate_id: uuid.UUID) -> Optional[Dict[str, Any]]:
         """Retrieve a candidate by ID along with their attached jobs and notes"""
-        from ..models.db_models import Job, JobAttachment, CandidateRecommendation
+        from ..models.db_models import Job, JobAttachment, CandidateRecommendation, Analysis
+        from ..agents.analyzer.run import is_analysis_active
 
         result = await self.session.execute(
             select(Candidate).where(Candidate.id == candidate_id)
@@ -63,8 +64,70 @@ class CandidateRepository:
         recommended_result = await self.session.execute(recommended_query)
         recommended_jobs = recommended_result.scalars().all()
 
+        # Get current resume structured data
+        from ..models.db_models import Resume
+        resume_stmt = (
+            select(Resume)
+            .where(Resume.candidate_id == candidate_id)
+            .where(Resume.is_current == True)
+            .order_by(Resume.created_at.desc())
+            .limit(1)
+        )
+        resume_result = await self.session.execute(resume_stmt)
+        current_resume = resume_result.scalar_one_or_none()
+        current_resume_structured_data = current_resume.structured_data if current_resume else None
+
         # Get notes
         notes = await self.get_notes(candidate_id)
+
+        # Check if there's an active resume processing task for this candidate
+        from ..agents.resume_processor.run import is_resume_processing_active
+        is_resume_processing = is_resume_processing_active(candidate_id=candidate_id)
+
+        # Build attached_jobs with analysis status
+        formatted_attached_jobs = []
+        for job in attached_jobs:
+            # Check for analysis in DB
+            analysis_stmt = (
+                select(Analysis)
+                .where(Analysis.candidate_id == candidate_id)
+                .where(Analysis.job_id == job.id)
+                .order_by(Analysis.created_at.desc())
+                .limit(1)
+            )
+            analysis_result = await self.session.execute(analysis_stmt)
+            analysis = analysis_result.scalar_one_or_none()
+
+            analysis_status = "ready"
+            is_processing = False
+            score = None
+            
+            # If resume is processing, then EVERYTHING is processing for this candidate
+            if is_resume_processing:
+                is_processing = True
+            elif analysis:
+                if analysis.content.get("status") == "processing":
+                    is_processing = True
+                else:
+                    score = analysis.content.get("score")
+            else:
+                # If no DB record, check memory registry
+                if is_analysis_active(job.id, candidate_id):
+                    is_processing = True
+            
+            if is_processing:
+                analysis_status = "processing"
+            elif not analysis:
+                analysis_status = "pending" # Or "none" / "not_started" - choosing "pending" to match existing get_analysis logic
+
+            formatted_attached_jobs.append({
+                "id": str(job.id),
+                "title": job.title,
+                "status": "attached",
+                "analysis_status": analysis_status,
+                "analysis_score": score,
+                "is_analysis_processing": is_processing
+            })
 
         return {
             "id": str(candidate.id),
@@ -78,14 +141,8 @@ class CandidateRepository:
             "work_preference": candidate.work_preference or [],
             "open_to_relocation": candidate.open_to_relocation or False,
             "created_at": candidate.created_at.isoformat() if candidate.created_at else None,
-            "attached_jobs": [
-                {
-                    "id": str(job.id),
-                    "title": job.title,
-                    "status": "attached"
-                }
-                for job in attached_jobs
-            ],
+            "current_resume_structured_data": current_resume_structured_data,
+            "attached_jobs": formatted_attached_jobs,
             "recommended_jobs": [
                 {
                     "id": str(job.id),
@@ -95,6 +152,31 @@ class CandidateRepository:
                 for job in recommended_jobs
             ],
             "notes": notes
+        }
+
+    async def get_current_resume(self, candidate_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+        """Retrieve the current resume for a candidate"""
+        from ..models.db_models import Resume
+        
+        stmt = (
+            select(Resume)
+            .where(Resume.candidate_id == candidate_id)
+            .where(Resume.is_current == True)
+            .order_by(Resume.created_at.desc())
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        resume = result.scalar_one_or_none()
+        
+        if not resume:
+            return None
+            
+        return {
+            "id": str(resume.id),
+            "raw_text": resume.raw_text,
+            "structured_data": resume.structured_data,
+            "original_filename": resume.original_filename,
+            "created_at": resume.created_at.isoformat() if resume.created_at else None
         }
 
     async def get_candidates(self, org_id: uuid.UUID) -> list[Dict[str, Any]]:

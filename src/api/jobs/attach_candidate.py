@@ -1,13 +1,16 @@
 import logging
 import uuid
 from typing import Annotated
-from fastapi import Depends, Request, HTTPException, Header
+from fastapi import Depends, Request, HTTPException, Header, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.repositories.job_repository import JobRepository
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
+from src.repositories.resume_repository import ResumeRepository
+from src.repositories.analysis_repository import AnalysisRepository
+from src.agents.analyzer.run import run_analyzer_agent
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +19,7 @@ async def attach_candidate(
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
     x_org_slug: Annotated[str, Header()],
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -66,6 +70,57 @@ async def attach_candidate(
         candidate_id=candidate_id
     )
     
+    # Trigger analysis if needed
+    resume_repo = ResumeRepository(db)
+    from sqlalchemy import select
+    from src.models.db_models import Resume
+    resume_stmt = (
+        select(Resume)
+        .where(Resume.candidate_id == candidate_id)
+        .where(Resume.is_current == True)
+        .order_by(Resume.created_at.desc())
+        .limit(1)
+    )
+    resume_result = await db.execute(resume_stmt)
+    current_resume = resume_result.scalar_one_or_none()
+    
+    if current_resume:
+        analysis_repo = AnalysisRepository(db)
+        existing_analysis = await analysis_repo.get_analysis_for_candidate_job_resume(
+            candidate_id=candidate_id,
+            job_id=job_id,
+            resume_id=current_resume.id
+        )
+        
+        if not existing_analysis:
+            logger.info(f"Triggering analysis for candidate {candidate_id} and job {job_id} using resume {current_resume.id}")
+            
+            # Create a skeleton analysis record
+            skeleton_content = {"status": "processing", "message": "Analysis is being generated..."}
+            analysis_id = await analysis_repo.create_analysis(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                content=skeleton_content,
+                resume_id=current_resume.id
+            )
+            
+            background_tasks.add_task(
+                run_analyzer_agent,
+                job_id=job_id,
+                candidate_id=candidate_id,
+                job_data=job,
+                resume_data={
+                    "raw_text": current_resume.raw_text,
+                    "structured_data": current_resume.structured_data,
+                    "resume_id": str(current_resume.id)
+                },
+                org_id=org.id
+            )
+        else:
+            logger.info(f"Analysis already exists for candidate {candidate_id}, job {job_id}, and resume {current_resume.id}")
+    else:
+        logger.warning(f"No current resume found for candidate {candidate_id}. Skipping analysis.")
+
     await db.commit()
     
     return {

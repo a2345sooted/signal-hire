@@ -83,6 +83,54 @@ class JobRepository:
         await self.session.flush()
         return True
 
+    async def get_attached_jobs(self, candidate_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Retrieve all jobs a candidate is attached to"""
+        from ..models.db_models import JobAttachment, Job
+        
+        stmt = (
+            select(Job)
+            .join(JobAttachment, Job.id == JobAttachment.job_id)
+            .where(JobAttachment.candidate_id == candidate_id)
+        )
+        result = await self.session.execute(stmt)
+        jobs = result.scalars().all()
+        
+        return [
+            {
+                "id": str(job.id),
+                "title": job.title,
+                "org_id": job.org_id,
+                "raw_text": job.raw_text,
+                "structured_data": job.structured_data,
+                "markdown_content": job.markdown_content
+            }
+            for job in jobs
+        ]
+
+    async def get_attached_candidates(self, job_id: uuid.UUID) -> List[Dict[str, Any]]:
+        """Retrieve all candidates attached to a job"""
+        from ..models.db_models import JobAttachment, Candidate
+        
+        stmt = (
+            select(Candidate)
+            .join(JobAttachment, Candidate.id == JobAttachment.candidate_id)
+            .where(JobAttachment.job_id == job_id)
+        )
+        result = await self.session.execute(stmt)
+        candidates = result.scalars().all()
+        
+        return [
+            {
+                "id": str(candidate.id),
+                "name": candidate.name,
+                "email": candidate.email,
+                "phone": candidate.phone,
+                "location": candidate.location,
+                "org_id": candidate.org_id
+            }
+            for candidate in candidates
+        ]
+
     async def get_job_notes(self, job_id: uuid.UUID) -> list[Dict[str, Any]]:
         """Retrieve all notes for a job"""
         from ..models.db_models import User
@@ -145,7 +193,8 @@ class JobRepository:
         pay_range_max: Optional[int] = None,
         pay_type: Optional[str] = None,
         employment_type: Optional[str] = None,
-        offers_relocation: bool = False
+        offers_relocation: bool = False,
+        details: Optional[dict] = None
     ) -> uuid.UUID:
         """Insert a new job with its embedding"""
         job = Job(
@@ -162,7 +211,8 @@ class JobRepository:
             pay_range_max=pay_range_max,
             pay_type=pay_type,
             employment_type=employment_type,
-            offers_relocation=offers_relocation
+            offers_relocation=offers_relocation,
+            details=details
         )
         self.session.add(job)
         await self.session.flush()
@@ -186,7 +236,16 @@ class JobRepository:
         embedding: Optional[List[float]] = None,
         title: Optional[str] = None,
         markdown_content: Optional[str] = None,
-        org_id: Optional[uuid.UUID] = None
+        org_id: Optional[uuid.UUID] = None,
+        location: Optional[str] = None,
+        work_arrangement: Optional[str] = None,
+        hybrid_days_per_week: Optional[int] = None,
+        pay_range_min: Optional[int] = None,
+        pay_range_max: Optional[int] = None,
+        pay_type: Optional[str] = None,
+        employment_type: Optional[str] = None,
+        offers_relocation: bool = False,
+        details: Optional[dict] = None
     ) -> uuid.UUID:
         """Insert a new job with a specific ID"""
         job = Job(
@@ -195,7 +254,16 @@ class JobRepository:
             raw_text=raw_text,
             markdown_content=markdown_content,
             structured_data=structured_data,
-            org_id=org_id
+            org_id=org_id,
+            location=location,
+            work_arrangement=work_arrangement,
+            hybrid_days_per_week=hybrid_days_per_week,
+            pay_range_min=pay_range_min,
+            pay_range_max=pay_range_max,
+            pay_type=pay_type,
+            employment_type=employment_type,
+            offers_relocation=offers_relocation,
+            details=details
         )
         self.session.add(job)
         await self.session.flush()
@@ -228,7 +296,8 @@ class JobRepository:
         pay_type: Optional[str] = None,
         employment_type: Optional[str] = None,
         offers_relocation: Optional[bool] = None,
-        raw_text: Optional[str] = None
+        raw_text: Optional[str] = None,
+        details: Optional[dict] = None
     ) -> bool:
         """Update an existing job's details"""
         result = await self.session.execute(
@@ -280,6 +349,8 @@ class JobRepository:
             job.offers_relocation = offers_relocation
         if raw_text is not None:
             job.raw_text = raw_text
+        if details is not None:
+            job.details = details
             
         await self.session.flush()
         return True
@@ -298,11 +369,61 @@ class JobRepository:
         notes = await self.get_job_notes(job_id)
 
         # Get attached candidates
-        from ..models.db_models import JobAttachment, JobRecommendation, Candidate
+        from ..models.db_models import JobAttachment, JobRecommendation, Candidate, Analysis
+        from ..agents.analyzer.run import is_analysis_active
+
         attached_result = await self.session.execute(
             select(Candidate).join(JobAttachment).where(JobAttachment.job_id == job_id)
         )
         attached_candidates = attached_result.scalars().all()
+
+        # Build attached_candidates with analysis status and score
+        from ..agents.resume_processor.run import is_resume_processing_active
+        formatted_attached_candidates = []
+        for c in attached_candidates:
+            # Check for analysis in DB
+            analysis_stmt = (
+                select(Analysis)
+                .where(Analysis.candidate_id == c.id)
+                .where(Analysis.job_id == job_id)
+                .order_by(Analysis.created_at.desc())
+                .limit(1)
+            )
+            analysis_result = await self.session.execute(analysis_stmt)
+            analysis = analysis_result.scalar_one_or_none()
+
+            analysis_status = "ready"
+            is_processing = False
+            score = None
+            
+            # If resume is processing, then EVERYTHING is processing for this candidate
+            if is_resume_processing_active(candidate_id=c.id):
+                is_processing = True
+            elif analysis:
+                if analysis.content.get("status") == "processing":
+                    is_processing = True
+                else:
+                    score = analysis.content.get("score")
+            else:
+                # If no DB record, check memory registry
+                if is_analysis_active(job_id, c.id):
+                    is_processing = True
+            
+            if is_processing:
+                analysis_status = "processing"
+            elif not analysis:
+                analysis_status = "pending"
+
+            formatted_attached_candidates.append({
+                "id": str(c.id),
+                "name": c.name,
+                "email": c.email,
+                "phone": c.phone,
+                "location": c.location,
+                "analysis_status": analysis_status,
+                "analysis_score": score,
+                "is_analysis_processing": is_processing
+            })
 
         # Get recommended candidates
         recommended_result = await self.session.execute(
@@ -336,18 +457,10 @@ class JobRepository:
             "pay_type": job.pay_type,
             "employment_type": job.employment_type,
             "offers_relocation": job.offers_relocation,
+            "details": job.details,
             "created_at": job.created_at.isoformat() if job.created_at else None,
             "notes": notes,
-            "attached_candidates": [
-                {
-                    "id": str(c.id),
-                    "name": c.name,
-                    "email": c.email,
-                    "phone": c.phone,
-                    "location": c.location
-                }
-                for c in attached_candidates
-            ],
+            "attached_candidates": formatted_attached_candidates,
             "recommended_candidates": [
                 {
                     "id": str(c.id),

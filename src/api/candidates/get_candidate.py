@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import get_db
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
+from .models import CandidateResponse
 
 async def get_candidate(
     request: Request,
@@ -39,5 +40,5 @@ async def get_candidate(
         
     return {
         "success": True,
-        "candidate": candidate_data
+        "candidate": CandidateResponse.model_validate(candidate_data)
     }

@@ -9,6 +9,7 @@ from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
 from src.repositories.resume_repository import ResumeRepository
 from src.services.storage import storage_service
+from src.agents.resume_processor.run import is_resume_processing_active
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,21 @@ async def get_resumes(
     formatted_resumes = []
     for r in resumes:
         signed_url = await storage_service.get_presigned_url(r.storage_key) if r.storage_key else None
+        
+        # Determine status: if structured_data is missing/empty, it's either processing or pending.
+        # We also check the memory-based task registry.
+        status = "ready"
+        if not r.structured_data:
+            status = "processing"
+        elif is_resume_processing_active(resume_id=r.id):
+            status = "processing"
+            
         formatted_resumes.append({
             "id": str(r.id),
             "filename": r.original_filename,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "is_current": getattr(r, "is_current", False),
+            "status": status,
             "signed_url": signed_url
         })
         

@@ -133,6 +133,7 @@ class Job(Base):
     raw_text = Column(Text, nullable=True)
     markdown_content = Column(Text, nullable=True)
     structured_data = Column(JSONB, nullable=True)
+    details = Column(JSONB, nullable=True)
     
     # New fields
     location = Column(String(255), nullable=True)

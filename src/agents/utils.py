@@ -12,10 +12,13 @@ def generate_thread_id(prefix: str, job_id: Optional[uuid.UUID] = None, thread_i
     Generates a consistent thread ID for an agent.
     
     Priority:
-    1. job_id (prefixed)
-    2. thread_id_id (prefixed)
-    3. random UUID (prefixed if specified)
+    1. job_id AND thread_id_id (if both provided, joined with _)
+    2. job_id (prefixed)
+    3. thread_id_id (prefixed)
+    4. random UUID (prefixed if specified)
     """
+    if job_id and thread_id_id:
+        return f"{prefix}_{job_id}_{thread_id_id}"
     if job_id:
         return f"{prefix}_{job_id}"
     if thread_id_id:

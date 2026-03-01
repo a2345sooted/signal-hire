@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -48,6 +48,9 @@ class AttachedCandidate(BaseModel):
     email: str
     phone: Optional[str] = None
     location: Optional[str] = None
+    analysis_status: Optional[str] = "pending"
+    analysis_score: Optional[int] = None
+    is_analysis_processing: bool = False
 
 class JobResponse(BaseModel):
     id: str
@@ -64,6 +67,7 @@ class JobResponse(BaseModel):
     pay_type: Optional[str] = None
     employment_type: Optional[str] = None
     offers_relocation: bool = False
+    details: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     
     # New fields for list card

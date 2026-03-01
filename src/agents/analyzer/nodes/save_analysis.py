@@ -35,12 +35,31 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
     try:
         async with AsyncSessionLocal() as db:
             repo = AnalysisRepository(db)
-            analysis_id = await repo.create_analysis(
+            
+            # Check for existing skeleton analysis
+            existing = await repo.get_analysis_for_candidate_job_resume(
                 candidate_id=uuid.UUID(candidate_id),
                 job_id=uuid.UUID(job_id),
-                content=content,
                 resume_id=uuid.UUID(resume_id) if resume_id else None
             )
+            
+            if existing:
+                logger.info(f"[ANALYZER_AGENT] Updating existing analysis {existing['id']}")
+                await repo.update_analysis(
+                    analysis_id=uuid.UUID(existing['id']),
+                    content=content,
+                    resume_id=uuid.UUID(resume_id) if resume_id else None
+                )
+                analysis_id = existing['id']
+            else:
+                logger.info("[ANALYZER_AGENT] Creating new analysis record")
+                analysis_id = await repo.create_analysis(
+                    candidate_id=uuid.UUID(candidate_id),
+                    job_id=uuid.UUID(job_id),
+                    content=content,
+                    resume_id=uuid.UUID(resume_id) if resume_id else None
+                )
+            
             await db.commit()
             logger.info(f"[ANALYZER_AGENT] Analysis saved with ID: {analysis_id}")
             return {"analysis_id": analysis_id}
