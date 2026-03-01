@@ -115,6 +115,7 @@ class Resume(Base):
     is_generated = Column(Boolean, nullable=False, default=False)
     is_optimized = Column(Boolean, nullable=False, default=False)
     parent_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
+    diff = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -261,3 +262,4 @@ class ProcessingTask(Base):
     job = relationship("Job")
     candidate = relationship("Candidate")
     resume = relationship("Resume")
+

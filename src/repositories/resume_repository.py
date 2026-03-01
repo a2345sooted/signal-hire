@@ -46,7 +46,8 @@ class ResumeRepository:
         is_active: bool = True,
         is_generated: bool = False,
         is_optimized: bool = False,
-        parent_id: Optional[uuid.UUID] = None
+        parent_id: Optional[uuid.UUID] = None,
+        diff: Optional[dict] = None
     ) -> uuid.UUID:
         """Insert a new resume with its embedding"""
         import hashlib
@@ -63,7 +64,8 @@ class ResumeRepository:
             is_active=is_active,
             is_generated=is_generated,
             is_optimized=is_optimized,
-            parent_id=parent_id
+            parent_id=parent_id,
+            diff=diff
         )
         self.session.add(resume)
         await self.session.flush()
@@ -93,7 +95,8 @@ class ResumeRepository:
         is_active: bool = True,
         is_generated: bool = False,
         is_optimized: bool = False,
-        parent_id: Optional[uuid.UUID] = None
+        parent_id: Optional[uuid.UUID] = None,
+        diff: Optional[dict] = None
     ) -> uuid.UUID:
         """Insert a new resume with a pre-generated ID"""
         import hashlib
@@ -111,7 +114,8 @@ class ResumeRepository:
             is_active=is_active,
             is_generated=is_generated,
             is_optimized=is_optimized,
-            parent_id=parent_id
+            parent_id=parent_id,
+            diff=diff
         )
         self.session.add(resume)
         await self.session.flush()
@@ -295,7 +299,8 @@ class ResumeRepository:
         is_active: Optional[bool] = None,
         is_generated: Optional[bool] = None,
         is_optimized: Optional[bool] = None,
-        parent_id: Optional[uuid.UUID] = None
+        parent_id: Optional[uuid.UUID] = None,
+        diff: Optional[dict] = None
     ) -> bool:
         """Update an existing resume's details"""
         result = await self.session.execute(
@@ -338,6 +343,8 @@ class ResumeRepository:
             resume.is_optimized = is_optimized
         if parent_id is not None:
             resume.parent_id = parent_id
+        if diff is not None:
+            resume.diff = diff
             
         await self.session.flush()
         return True

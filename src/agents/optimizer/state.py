@@ -24,6 +24,7 @@ class OptimizerState(BaseAgentState):
     # Processed Data
     optimization_plan: Optional[OptimizationPlanSchema]
     optimized_resume: Optional[ResumeSchema]
+    diff_markdown: Optional[str]
     
     # Results
     new_resume_id: Optional[uuid.UUID]

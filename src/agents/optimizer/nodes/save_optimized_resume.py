@@ -31,10 +31,19 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
     job_id = state.get("job_id")
     org_id = state.get("org_id")
     parent_resume_id = state.get("resume_id")
+    optimization_plan = state.get("optimization_plan")
+    diff_markdown = state.get("diff_markdown")
     
     # Convert Pydantic model to dict
     structured_data = optimized_resume.model_dump()
+    diff_data = (optimization_plan.model_dump() if optimization_plan else {}).copy()
+    if diff_markdown:
+        diff_data["markdown"] = diff_markdown
     
+    logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Diff data to save: markdown length {len(diff_markdown) if diff_markdown else 0}")
+    if diff_markdown and "placeholder" in diff_markdown.lower():
+        logger.warning(f"[OPTIMIZER_AGENT] [{clean_id_str}] diff_markdown contains 'placeholder'!")
+
     # Generate embeddings for the new resume
     logger.info(f"[OPTIMIZER_AGENT] [{clean_id_str}] Generating embeddings for optimized resume...")
     prepared_text = json.dumps(structured_data, indent=2)
@@ -102,7 +111,8 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
                 candidate_id=uuid.UUID(candidate_id),
                 is_generated=True,
                 is_optimized=True,
-                parent_id=uuid.UUID(parent_resume_id) if parent_resume_id else None
+                parent_id=uuid.UUID(parent_resume_id) if parent_resume_id else None,
+                diff=diff_data
             )
             
             # Add chunk embeddings

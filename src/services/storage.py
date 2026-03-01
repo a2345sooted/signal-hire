@@ -133,16 +133,23 @@ class StorageService:
                 def __init__(self, body, client):
                     self.body = body
                     self.client = client
-                
+
                 def __aiter__(self):
                     return self.body.__aiter__()
-                
+
                 async def read(self, n=-1):
                     return await self.body.read(n)
-                
+
                 async def close(self):
-                    await self.body.close()
-                    await self.client.__aexit__(None, None, None)
+                    if self.body is not None:
+                        close_method = getattr(self.body, 'close', None)
+                        if close_method is not None:
+                            result = close_method()
+                            # Check if the close method returns a coroutine
+                            if hasattr(result, '__await__'):
+                                await result
+                    if self.client is not None:
+                        await self.client.__aexit__(None, None, None)
 
             return StreamWrapper(response['Body'], s3_client)
         except Exception as e:
@@ -180,5 +187,22 @@ class StorageService:
         except Exception as e:
             logger.error(f"Failed to check file existence in S3: {str(e)}")
             return False
+
+    async def copy_file(self, source_key: str, destination_key: str) -> str:
+        """
+        Copies an object from one key to another in S3.
+        """
+        try:
+            async with self.session.client('s3', endpoint_url=self.endpoint_url) as s3:
+                copy_source = {'Bucket': self.bucket_name, 'Key': source_key}
+                await s3.copy_object(
+                    CopySource=copy_source,
+                    Bucket=self.bucket_name,
+                    Key=destination_key
+                )
+            return destination_key
+        except Exception as e:
+            logger.error(f"Failed to copy file from {source_key} to {destination_key} in S3: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to copy file in S3: {str(e)}")
 
 storage_service = StorageService()

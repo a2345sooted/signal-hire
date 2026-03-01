@@ -1,6 +1,7 @@
 import logging
 import uuid
-from fastapi import Depends
+from typing import Annotated
+from fastapi import Depends, Request, Header, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -8,19 +9,43 @@ from src.repositories.job_repository import JobRepository
 from src.repositories.resume_repository import ResumeRepository
 from src.repositories.analysis_repository import AnalysisRepository
 from src.repositories.candidate_repository import CandidateRepository
+from src.repositories.organization_repository import OrganizationRepository
 from src.agents.analyzer.run import is_analysis_active
 from src.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 
 async def get_analysis(
+    request: Request,
     job_id: uuid.UUID,
     candidate_id: uuid.UUID,
+    x_org_slug: Annotated[str, Header(alias="X-Org-Slug")],
     db: AsyncSession = Depends(get_db)
 ):
     """
     Retrieve analysis for a specific job and candidate.
     """
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+
+    org_repo = OrganizationRepository(db)
+    org = await org_repo.get_organization_by_slug(x_org_slug)
+    if not org:
+        raise HTTPException(status_code=404, detail=f"Organization '{x_org_slug}' not found")
+
+    role = await org_repo.get_user_role_in_org(user_id, org.id)
+    if not role:
+        raise HTTPException(status_code=403, detail="User does not belong to this organization")
+
+    job_repo = JobRepository(db)
+    job = await job_repo.get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if str(job.get("org_id")) != str(org.id):
+        raise HTTPException(status_code=403, detail="Job does not belong to this organization")
+
     logger.info(f"Fetching analysis for job: {job_id}, candidate: {candidate_id}")
     
     analysis_repo = AnalysisRepository(db)
@@ -128,10 +153,21 @@ async def get_analysis(
             
             if optimized_resume:
                 created_at = getattr(optimized_resume, "created_at", None)
+                
+                # Fetch parent resume's signed URL for the diff_signed_url field
+                diff_markdown = None
+                if hasattr(optimized_resume, "diff") and optimized_resume.diff:
+                    diff_markdown = optimized_resume.diff.get("markdown")
+                
+                logger.info(f"Picked optimized resume {optimized_resume.id} with diff_markdown length: {len(diff_markdown) if diff_markdown else 0}")
+                if diff_markdown and "placeholder" in diff_markdown.lower():
+                    logger.warning(f"Optimized resume {optimized_resume.id} has PLACEHOLDER diff_markdown!")
+
                 optimized_resume_info = {
                     "id": str(getattr(optimized_resume, "id", "")),
                     "status": "completed",
                     "signed_url": signed_url,
+                    "diff_markdown": diff_markdown,
                     "created_at": created_at.isoformat() if created_at and hasattr(created_at, "isoformat") else created_at
                 }
     

@@ -18,6 +18,7 @@ from .attach_candidate import attach_candidate
 from .detach_candidate import detach_candidate
 from .optimize_resume import optimize_resume
 from .get_optimized_resume import get_optimized_resume
+from .generate_resume_diff import generate_resume_diff
 from .change_resume import change_attachment_resume
 
 __all__ = [
@@ -46,5 +47,6 @@ __all__ = [
     "detach_candidate",
     "optimize_resume",
     "get_optimized_resume",
+    "generate_resume_diff",
     "change_attachment_resume",
 ]
