@@ -34,11 +34,14 @@ async def save_analysis_node(state: AnalyzerState, config: RunnableConfig = None
     content = {
         "score": state.get("score"),
         "score_breakdown": state.get("score_breakdown"),
-        "major_hits": state.get("major_hits"),
-        "minor_hits": state.get("minor_hits"),
-        "major_gaps": state.get("major_gaps"),
-        "minor_gaps": state.get("minor_gaps"),
+        # Separate hits/gaps are deprecated in favor of being included in the markdown message.
+        # We keep them as empty lists for backward compatibility if needed.
+        "major_hits": [],
+        "minor_hits": [],
+        "major_gaps": [],
+        "minor_gaps": [],
         "message": state.get("messages", [""])[-1] if state.get("messages") else "",
+        "hiring_notes": state.get("hiring_notes"),
         "status": "completed"
     }
 

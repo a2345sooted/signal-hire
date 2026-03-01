@@ -49,6 +49,15 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
     RESUME TEXT/DATA:
     {resume_text}
     
+    SCORING RUBRIC (FOR YOUR REFERENCE TO IDENTIFY HITS/GAPS):
+    1. Skills Match (30 pts): Hard skills (languages, tools, platforms).
+    2. Experience Relevance (25 pts): Title, industry, and day-to-day responsibilities.
+    3. Seniority / Years of Experience (15 pts): Required vs. actual.
+    4. Education & Certifications (10 pts): Degree field + level; relevant certs.
+    5. Keyword / ATS Coverage (10 pts): Phrasing, titles, and terminology overlap.
+    6. Accomplishments vs. Responsibilities (5 pts): Quantified impact vs. just listing duties.
+    7. Formatting & Clarity (5 pts): Clean, readable, ATS-compatible format.
+
     CRITICAL INSTRUCTIONS:
     1.  **Exclude Non-Skill Factors**: Do NOT identify gaps or hits for things like visa sponsorship, hybrid/remote work preferences, location, or general language literacy (e.g., "Advanced English") unless it is the *primary* function of the role (e.g., Translator, Technical Writer). These are almost never MAJOR gaps.
     2.  **Node.js Recognition**: When identifying technology matches, be aware of variations in naming for Node.js. "Node.js", "NodeJS", "Nodejs", and "Node" (in a web development context) should all be treated as the same technology. Ensure you check for these variations in both the JD and the Resume.
@@ -75,7 +84,8 @@ async def identifier_node(state: AnalyzerState, config: RunnableConfig = None):
             "major_hits": result.major_hits,
             "minor_hits": result.minor_hits,
             "major_gaps": result.major_gaps,
-            "minor_gaps": result.minor_gaps
+            "minor_gaps": result.minor_gaps,
+            "identifier_retry_count": 0 # Initialize or reset retry count
         }
     except Exception as e:
         logger.error(f"[ANALYZER_AGENT] [{clean_id_str}] Identifier Node failed: {str(e)}", exc_info=True)

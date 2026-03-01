@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ....agents.resume_processor.state import ResumeState
 from ....constants import NO_THREAD_ID
+from ....constants import TASK_ANALYSIS, TASK_RESUME
 from ....database import AsyncSessionLocal
 from ....repositories.resume_repository import ResumeRepository
 from ....services.embedding import EmbeddingService
@@ -332,7 +333,7 @@ async def save_resume_node(state: ResumeState, config: RunnableConfig = None):
                 # Pre-register the task in the database
                 await task_repo.create_task(
                     task_id=analysis_id,
-                    task_type="analysis",
+                    task_type=TASK_ANALYSIS,
                     job_id=jid,
                     candidate_id=candidate_id,
                     resume_id=resume_id,

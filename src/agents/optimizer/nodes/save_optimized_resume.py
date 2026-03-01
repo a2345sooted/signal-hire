@@ -3,6 +3,7 @@ import uuid
 import json
 from langchain_core.runnables import RunnableConfig
 from ....agents.optimizer.state import OptimizerState
+from ....constants import TASK_ANALYSIS, TASK_OPTIMIZER
 from ....database import AsyncSessionLocal
 from ....repositories.resume_repository import ResumeRepository
 from ....repositories.analysis_repository import AnalysisRepository
@@ -156,7 +157,7 @@ async def save_optimized_resume_node(state: OptimizerState, config: RunnableConf
                 task_repo = ProcessingTaskRepository(db)
                 await task_repo.create_task(
                     task_id=analysis_task_id,
-                    task_type="analysis",
+                    task_type=TASK_ANALYSIS,
                     job_id=uuid.UUID(job_id),
                     candidate_id=uuid.UUID(candidate_id),
                     resume_id=new_resume_id,

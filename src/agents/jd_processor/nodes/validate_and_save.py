@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from ....agents.jd_processor.state import JDState
 from ....agents.utils import strip_id_prefix, get_thread_id
 from ....database import AsyncSessionLocal
+from ....constants import TASK_ANALYSIS
 from ....repositories.job_repository import JobRepository
 from ....services.embedding import EmbeddingService
 
@@ -234,7 +235,7 @@ async def validate_and_save_node(state: JDState, config: RunnableConfig = None):
                         task_repo = ProcessingTaskRepository(db)
                         await task_repo.create_task(
                             task_id=analysis_id_re,
-                            task_type="analysis",
+                            task_type=TASK_ANALYSIS,
                             job_id=job_id,
                             candidate_id=candidate_id,
                             resume_id=resume_id,

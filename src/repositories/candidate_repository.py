@@ -112,17 +112,28 @@ class CandidateRepository:
             analysis = analysis_result.scalar_one_or_none()
 
             # Check if a completed analysis exists
-            is_ready = analysis and analysis.content.get("score") is not None
+            is_ready = False
+            score = None
+            if analysis:
+                content = analysis.content
+                if content.get("status") == "completed":
+                    is_ready = True
+                    score = content.get("score")
+                elif content.get("score") is not None:
+                    # Legacy check for score
+                    is_ready = True
+                    score = content.get("score")
 
             # Get the latest task (active or not) to compare with analysis
             from ..models.db_models import ProcessingTask
+            from ..constants import TASK_ANALYSIS
             from datetime import datetime, timezone, timedelta
             
             task_stmt = (
                 select(ProcessingTask)
                 .where(ProcessingTask.job_id == job.id)
                 .where(ProcessingTask.candidate_id == candidate_id)
-                .where(ProcessingTask.task_type == "analysis")
+                .where(ProcessingTask.task_type == TASK_ANALYSIS)
             )
             
             if attached_resume_id:
@@ -167,8 +178,6 @@ class CandidateRepository:
             
             # Final decision for UI processing flag
             display_processing = is_processing
-
-            score = analysis.content.get("score") if analysis else None
 
             formatted_attached_jobs.append({
                 "id": str(job.id),

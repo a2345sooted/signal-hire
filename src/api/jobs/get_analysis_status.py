@@ -120,12 +120,13 @@ async def get_analysis_status(
 
     # Check for active tasks in DB
     from src.models.db_models import ProcessingTask
+    from src.constants import TASK_ANALYSIS, TASK_RESUME, TASK_OPTIMIZER
     from sqlalchemy import select
     task_stmt = (
         select(ProcessingTask)
         .where(ProcessingTask.candidate_id == candidate_id)
         .where(ProcessingTask.job_id == job_id)
-        .where(ProcessingTask.task_type.in_(["analysis", "resume", "optimizer"]))
+        .where(ProcessingTask.task_type.in_([TASK_ANALYSIS, TASK_RESUME, TASK_OPTIMIZER]))
         .order_by(ProcessingTask.created_at.desc())
         .limit(1)
     )

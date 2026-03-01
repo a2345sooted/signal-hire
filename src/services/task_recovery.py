@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from ..database import AsyncSessionLocal
+from ..constants import TASK_ANALYSIS, TASK_RESUME, TASK_OPTIMIZER
 from ..models.db_models import ProcessingTask, Job, Resume, Analysis
 from ..repositories.processing_task_repository import ProcessingTaskRepository
 from ..repositories.job_repository import JobRepository
@@ -118,11 +119,11 @@ class TaskRecoveryService:
 
         if task.task_type == "jd":
             await self._recover_jd_task(session, task)
-        elif task.task_type == "resume":
+        elif task.task_type == TASK_RESUME:
             await self._recover_resume_task(session, task)
-        elif task.task_type == "analysis":
+        elif task.task_type == TASK_ANALYSIS:
             await self._recover_analysis_task(session, task)
-        elif task.task_type == "optimizer":
+        elif task.task_type == TASK_OPTIMIZER:
             await self._recover_optimizer_task(session, task)
         else:
             logger.warning(f"Unknown task type for recovery: {task.task_type}")

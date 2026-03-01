@@ -15,6 +15,9 @@ async def generate_analysis_summary(
     major_hits: list, 
     minor_hits: list, 
     major_gaps: list, 
+    minor_gaps: list = None,
+    job_text: str = None,
+    resume_text: str = None,
     candidate_location: str = None,
     candidate_notes: list = None,
     thread_id: str = NO_THREAD_ID
@@ -25,9 +28,11 @@ async def generate_analysis_summary(
     logger.info(f"[ANALYZER] [{thread_id}] Standalone analysis summary generation started.")
     start_time = time.time()
     
-    # Take a few examples from each to provide context to the LLM
-    hits_sample = (major_hits + minor_hits)
-    gaps_sample = major_gaps
+    # Organize matches and gaps
+    major_hits_text = "\n".join([f"- {h}" for h in major_hits]) if major_hits else "None identified."
+    minor_hits_text = "\n".join([f"- {h}" for h in minor_hits]) if minor_hits else "None identified."
+    major_gaps_text = "\n".join([f"- {g}" for g in major_gaps]) if major_gaps else "None identified."
+    minor_gaps_text = "\n".join([f"- {g}" for g in (minor_gaps or [])]) if minor_gaps else "None identified."
     
     candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
     if candidate_notes:
@@ -40,30 +45,46 @@ async def generate_analysis_summary(
     system_prompt = (
         "# ROLE\n"
         "You are Aline, a professional recruitment consultant at Signal-Hire. "
-        "Your goal is to provide a hiring manager with a clear, objective, and professional markdown write up of the overall impression of this candidate for this job. "
+        "Your goal is to provide a hiring manager with a deep, insightful, and professional markdown write up of the overall impression of this candidate for this job. "
         "Your tone should be professional, analytical, and direct. "
         "Be pragmatic and highlight both strengths and critical missing requirements. "
-        "Your insights should help the hiring manager decide whether to proceed with this candidate.\n\n"
+        "Your insights should help recruiters place people by providing actionable depth.\n\n"
         "# CONSTRAINTS\n"
         "1. Always respond in valid Markdown.\n"
         "2. Maintain a professional and objective tone. Use \"I\" for yourself and address the hiring manager directly or refer to the candidate in the third person.\n"
         "3. Keep your response focused on the match between the resume and the job requirements.\n"
-        "4. End with a single, targeted, actionable recommendation or a question for the hiring manager to consider during an interview.\n"
-        "5. Use the exact ATS Score provided in the input. Do not make up a different score.\n\n"
-        "# RESPONSE CONTENT\n"
-        "Your response should be a structured markdown write-up including:\n"
-        "- **Overall Impression**: A 1-2 paragraph professional summary of the candidate's suitability for the role.\n"
-        "- **The Match Score**: (e.g., 85/100).\n"
-        "- **Key Strengths/Matches**: Why the candidate is a good fit.\n"
-        "- **Critical Gaps/Concerns**: Important requirements or skills that are missing.\n"
-        "- **Conclusion/Recommendation**: A brief final thought on whether to interview or not."
+        "4. DO NOT include the numerical Match Score (e.g., 85/100) anywhere in your message. This score is displayed in a separate UI panel.\n"
+        "5. Avoid double headers. For example, under '**Key Strengths**', just use bullet points for both major and minor strengths without adding sub-headers like 'Major Strengths'.\n\n"
+        "# RESPONSE STRUCTURE\n"
+        "Your response MUST include these exact sections in order:\n"
+        "1. **Overall Impression**: A deep, 2-3 paragraph professional summary providing insight beyond just repeating hits/gaps.\n"
+        "2. **Key Strengths**: A list of why the candidate is a good fit. Use bullet points for both Major and Minor strengths (no sub-headers).\n"
+        "3. **Gaps & Concerns**: A list of missing requirements or skills. Use bullet points for both Major and Minor gaps (no sub-headers).\n"
+        "4. **Resume Optimization Hints**: Concrete advice on improvements. **CRITICAL: Cross-reference the Job Description against the provided Resume text to identify specific keywords or experiences that are implied by the candidate's existing experience but missing or vague on their resume. "
+        "Explicitly identify skills that the candidate almost certainly has given their experience (e.g., if they have 'Angular' experience, they likely have 'TypeScript' skills; if they have 'PostgreSQL' experience, they likely have 'SQL' skills) but haven't explicitly listed, and advise them to add those exact keywords if they are present in the JD. "
+        "DO NOT use vague phrasing like 'mention anything that...'. Instead, provide explicit, direct suggestions and specific probing questions for the recruiter to ask the candidate to confirm these implied skills. "
+        "Example: 'The JD requires TypeScript. Since you have extensive Angular experience, explicitly add \"TypeScript\" to your skills section to ensure you pass ATS filters.' or 'Ask the candidate if their PostgreSQL experience was on RDS/Aurora; if so, they should state that explicitly.'**\n"
+        "5. **Candidate Discovery Questions**: A list of 3-5 high-impact questions the recruiter should ask to probe abilities and address gaps. Mention that updating notes with answers will trigger a re-analysis.\n"
+        "6. **Conclusion/Recommendation**: A brief final thought on whether to proceed."
     )
 
     user_message = f"""Please provide an overall impression for this candidate:
+- **JOB DESCRIPTION**: {job_text}
+- **RESUME TEXT**: {resume_text}
 - **CANDIDATE INFO**: {candidate_info}
-- **Match Score**: {score}/100
-- **Key Matches**: {hits_sample}
-- **Critical Gaps**: {gaps_sample}"""
+
+### IDENTIFIED MAJOR STRENGTHS
+{major_hits_text}
+
+### IDENTIFIED MINOR STRENGTHS
+{minor_hits_text}
+
+### IDENTIFIED MAJOR GAPS
+{major_gaps_text}
+
+### IDENTIFIED MINOR GAPS
+{minor_gaps_text}
+"""
 
     llm = get_model(model_name=MODEL_4O_MINI, temperature=0.0)
     
@@ -103,6 +124,11 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
     minor_gaps = state.get("minor_gaps", [])
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
+    job_data = state.get("job_data", {})
+    job_text = job_data.get('raw_text', 'No JD text available')
+    
+    resume_data = state.get("resume_data", {})
+    resume_text = resume_data.get('raw_text') or str(resume_data.get('structured_data', 'No resume data available'))
 
     try:
         summary_msg = await generate_analysis_summary(
@@ -110,6 +136,9 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
             major_hits=major_hits,
             minor_hits=minor_hits,
             major_gaps=major_gaps,
+            minor_gaps=minor_gaps,
+            job_text=job_text,
+            resume_text=resume_text,
             candidate_location=candidate_location,
             candidate_notes=candidate_notes,
             thread_id=clean_id_str
@@ -122,11 +151,10 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
 
         logger.info(f"[ANALYZER_AGENT] [{clean_id_str}] Message Node completed.")
         
-        # Ensure chat input is re-enabled after the message node finishes
-        if clean_id_str != NO_THREAD_ID:
-            pass
-            
-        return {"messages": state.get("messages", []) + [summary_msg]}
+        return {
+            "messages": state.get("messages", []) + [summary_msg],
+            "message_retry_count": 0 # Initialize or reset retry count
+        }
     except Exception as e:
         logger.error(f"[ANALYZER_AGENT] [{clean_id_str}] Message Node failed: {str(e)}", exc_info=True)
         raise e

@@ -134,4 +134,4 @@ async def is_analysis_active(job_id: uuid.UUID, candidate_id: uuid.UUID, thread_
     async with AsyncSessionLocal() as db:
         repo = ProcessingTaskRepository(db)
         # Note: repository uses job_id and candidate_id which is broader, but safer
-        return await repo.is_task_active(task_type="analysis", job_id=job_id, candidate_id=candidate_id)
+        return await repo.is_task_active(task_type=TASK_ANALYSIS, job_id=job_id, candidate_id=candidate_id)

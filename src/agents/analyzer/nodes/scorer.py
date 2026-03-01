@@ -17,60 +17,49 @@ def calculate_deterministic_score(input_data: DeterministicScoringInput) -> Scor
     Deterministically calculates the score based on the provided inputs.
     This is the source of truth for scoring logic.
     """
-    # 1. Critical Requirements (Max 40)
-    critical_score = input_data.critical_hits_count * 10 # Example: 10 pts per major hit, capped at 40
-    for penalty in input_data.major_gap_penalties:
-        critical_score -= penalty
-    for penalty in input_data.specific_penalties:
-        critical_score -= penalty
-    critical_score = max(0, min(40, critical_score))
+    # 1. Skills Match (30 pts)
+    skills_score = max(0, min(30, input_data.skills_match_score))
 
-    # 2. Important Requirements (Max 25)
-    important_score = (input_data.important_hits_count * 3) # 3 pts per minor hit
-    important_score += (input_data.partial_skill_hits_count * 1.5) # 50% value
-    important_score += (input_data.learning_skill_hits_count * 0.6) # 20% value
-    for penalty in input_data.minor_gap_penalties:
-        important_score -= penalty
-    if input_data.has_85_percent_important:
-        important_score += 2
-    important_score = max(0, min(25, int(important_score)))
+    # 2. Experience Relevance (25 pts)
+    exp_rel_score = max(0, min(25, input_data.experience_relevance_score))
 
-    # 3. Nice-to-Have (Max 10)
-    nice_to_have_score = max(0, min(10, input_data.nice_to_have_hits_count))
+    # 3. Seniority / Years of Experience (15 pts)
+    seniority_score = max(0, min(15, input_data.seniority_score))
 
-    # 4. Experience Level Match (Max 15)
-    exp_base = input_data.experience_years_match_score
-    exp_score = exp_base * input_data.experience_multiplier
-    exp_score += input_data.experience_bonus_penalty
-    
-    # Special Modifier: NO compensatory points for Experience if Critical Requirements are missed (< 30)
-    if critical_score < 30:
-        exp_score = 0
-    
-    exp_score = max(0, min(15, int(exp_score)))
+    # 4. Education & Certifications (10 pts)
+    edu_score = max(0, min(10, input_data.education_certs_score))
 
-    # 5. Presentation & Relevance (Max 10)
-    pres_score = input_data.presentation_quality_score + input_data.tailoring_score + input_data.presentation_bonus_penalty
-    pres_score = max(0, min(10, pres_score))
+    # 5. Keyword / ATS Coverage (10 pts)
+    keyword_score = max(0, min(10, input_data.keyword_coverage_score))
+
+    # 6. Accomplishments vs. Responsibilities (5 pts)
+    acc_score = max(0, min(5, input_data.accomplishments_score))
+
+    # 7. Formatting & Clarity (5 pts)
+    format_score = max(0, min(5, input_data.formatting_clarity_score))
 
     # Total Score
-    total_score = critical_score + important_score + nice_to_have_score + exp_score + pres_score
+    total_score = skills_score + exp_rel_score + seniority_score + edu_score + keyword_score + acc_score + format_score
     total_score = max(0, min(100, total_score))
 
     breakdown = ScoreBreakdown(
-        critical_requirements=critical_score,
-        important_requirements=important_score,
-        nice_to_have=nice_to_have_score,
-        experience_level=exp_score,
-        presentation=pres_score
+        skills_match=skills_score,
+        experience_relevance=exp_rel_score,
+        seniority=seniority_score,
+        education_certs=edu_score,
+        keyword_coverage=keyword_score,
+        accomplishments=acc_score,
+        formatting_clarity=format_score
     )
 
     reasoning = (
-        f"Critical: {critical_score}/40 (Hits: {input_data.critical_hits_count}, Penalties: {sum(input_data.major_gap_penalties) + sum(input_data.specific_penalties)})\n"
-        f"Important: {important_score}/25 (Hits: {input_data.important_hits_count}, Partial: {input_data.partial_skill_hits_count}, Learning: {input_data.learning_skill_hits_count}, Gaps: {sum(input_data.minor_gap_penalties)}, Bonus: {input_data.has_85_percent_important})\n"
-        f"Nice-to-Have: {nice_to_have_score}/10\n"
-        f"Experience: {exp_score}/15 (Base: {exp_base}, Mult: {input_data.experience_multiplier}, Bonus/Penalty: {input_data.experience_bonus_penalty})\n"
-        f"Presentation: {pres_score}/10 (Quality: {input_data.presentation_quality_score}, Tailoring: {input_data.tailoring_score}, Bonus/Penalty: {input_data.presentation_bonus_penalty})\n"
+        f"Skills Match: {skills_score}/30\n"
+        f"Experience Relevance: {exp_rel_score}/25\n"
+        f"Seniority: {seniority_score}/15\n"
+        f"Education & Certs: {edu_score}/10\n"
+        f"Keyword Coverage: {keyword_score}/10\n"
+        f"Accomplishments: {acc_score}/5\n"
+        f"Formatting: {format_score}/5\n"
         f"Total Deterministic Score: {total_score}/100"
     )
 
@@ -123,31 +112,45 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     
     ### SCORING RUBRIC & CATEGORIES (FOR YOUR REFERENCE TO EXTRACT INPUTS):
 
-    1. **Critical Requirements (Max 40 pts)**:
-       - **Hits**: Award 10 points per major hit against critical JD requirements.
-       - **Gaps**: Deduct 10-15 points per major gap (very strict). 
-       - **Specific Penalties**: -20 for missing a must-have certification/degree; -15 for a missing core technical skill; -12 for missing years of experience threshold.
-       - **Floor/Cap**: Min 0, Max 40.
+    1. **Skills Match (30 pts)**:
+       - 25–30: Covers nearly all required skills + most preferred.
+       - 15–24: Covers most required, some preferred.
+       - 5–14: Partial match, missing key skills.
+       - 0–4: Minimal overlap.
 
-    2. **Important Requirements (Max 25 pts)**:
-       - **Hits**: Award 3 points per minor hit. Award 1.5 points for related/transferable skills. Award 0.6 points if they show they are learning the skill.
-       - **Gaps**: Deduct 5-8 points per minor gap.
-       - **Bonus**: +2 if they have 85%+ of important requirements.
-       - **Floor/Cap**: Min 0, Max 25.
+    2. **Experience Relevance (25 pts)**:
+       - 20–25: Direct experience in similar role/domain.
+       - 12–19: Adjacent experience with transferable relevance.
+       - 5–11: Some overlap but significant gaps.
+       - 0–4: Largely unrelated background.
 
-    3. **Nice-to-Have (Max 10 pts)**:
-       - **Hits**: Award 1 point for each nice-to-have hit.
-       - **Floor/Cap**: Min 0, Max 10.
+    3. **Seniority / Years of Experience (15 pts)**:
+       - 12–15: Meets or slightly exceeds the requirement.
+       - 8–11: Within 1–2 years of requirement.
+       - 4–7: Noticeably under or significantly over (possible flight risk).
+       - 0–3: Major mismatch.
 
-    4. **Experience Level Match (Max 15 pts)**:
-       - **Years**: Meets (100-120%): 10-12 pts; Slightly under (75-99%): 5-7 pts; Significantly under: 0-2 pts; Overqualified (150%+): 8-10 pts.
-       - **Multiplier**: Directly relevant (1.0x), Adjacent (0.6x), Transferable (0.4x).
-       - **Bonus/Penalty**: Upward trajectory (+1), Job hopping (-3), Career pivot (0).
+    4. **Education & Certifications (10 pts)**:
+       - 8–10: Degree field + level matches; relevant certs present.
+       - 5–7: Degree present, minor field mismatch or certs missing.
+       - 2–4: Degree field unrelated but experience compensates.
+       - 0–1: No degree where required, no compensating factors.
 
-    5. **Presentation & Relevance (Max 10 pts)**:
-       - **Quality**: Well-organized (4), Acceptable (2), Poor (0).
-       - **Tailoring**: Clearly tailored (4), Generic (1), Spray-and-pray (0).
-       - **Bonus/Penalty**: Quantified achievements (+1), Typos (-3), Unexplained gaps > 1yr (-3).
+    5. **Keyword / ATS Coverage (10 pts)**:
+       - 8–10: High overlap in phrasing, titles, and terminology.
+       - 5–7: Moderate overlap, some synonyms used.
+       - 2–4: Low overlap, likely to fail ATS filters.
+       - 0–1: Almost no matching language.
+
+    6. **Accomplishments vs. Responsibilities (5 pts)**:
+       - 4–5: Quantified achievements tied to relevant outcomes.
+       - 2–3: Mix of achievements and duties.
+       - 0–1: Purely duty-based, no measurable outcomes.
+
+    7. **Formatting & Clarity (5 pts)**:
+       - 4–5: Clean structure, no tables/graphics, easy to parse.
+       - 2–3: Minor formatting issues.
+       - 0–1: Heavy formatting, graphics, or parsing-hostile layout.
 
     ### TASK:
     1. Analyze the hits, gaps, and candidate info provided and call the `calculate_deterministic_score` tool with the appropriate arguments. 
@@ -185,6 +188,7 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
                 return {
                     "score": result.score,
                     "score_breakdown": result.breakdown.model_dump(),
+                    "scorer_retry_count": 0, # Initialize or reset retry count
                     "metadata": {
                         **state.get("metadata", {}),
                         "status": "scored"

@@ -34,10 +34,17 @@ class AnalyzerState(BaseAgentState):
     minor_hits: List[str]
     major_gaps: List[str]
     minor_gaps: List[str]
+    hiring_notes: Optional[str] = None
     
     # Process management
     messages: List[str]
     personal_info_mismatch_question: Optional[str]
+    identifier_feedback: Optional[str] = None
+    identifier_retry_count: int = 0
+    scorer_feedback: Optional[str]
+    scorer_retry_count: int = 0
+    message_feedback: Optional[str] = None
+    message_retry_count: int = 0
     
     # Metadata
     metadata: AnalyzerMetadata

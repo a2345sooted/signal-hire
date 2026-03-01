@@ -5,6 +5,7 @@ from fastapi import Depends, Request, HTTPException, Header, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.constants import TASK_ANALYSIS
 from src.repositories.job_repository import JobRepository
 from src.repositories.candidate_repository import CandidateRepository
 from src.repositories.organization_repository import OrganizationRepository
@@ -152,7 +153,7 @@ async def attach_candidate(
             
             await task_repo.create_task(
                 task_id=task_id,
-                task_type="analysis",
+                task_type=TASK_ANALYSIS,
                 job_id=job_id,
                 candidate_id=candidate_id,
                 resume_id=resume_id,
