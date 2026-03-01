@@ -152,10 +152,6 @@ class CandidateRepository:
         attached_result = await self.session.execute(attached_query)
         attached_rows = attached_result.all()
 
-        # Get recommended jobs
-        recommended_query = select(Job).join(CandidateRecommendation).where(CandidateRecommendation.candidate_id == candidate_id)
-        recommended_result = await self.session.execute(recommended_query)
-        recommended_jobs = recommended_result.scalars().all()
 
         # Get latest resume structured data
         from ..models.db_models import Resume
@@ -192,12 +188,66 @@ class CandidateRepository:
             formatted_attached_jobs.append({
                 "id": str(job.id),
                 "title": job.title,
+                "client_name": job.client_name,
                 "status": "attached",
                 "analysis_status": status_data["analysis_status"],
                 "analysis_score": status_data["analysis_score"],
                 "is_analysis_processing": status_data["is_analysis_processing"],
                 "attached_resume_id": str(attached_resume_id) if attached_resume_id else None
             })
+
+        # Get recommended jobs
+        final_recommended_jobs = []
+        if latest_resume:
+            from ..models.db_models import Embedding
+            # Find the latest embedding for this resume
+            emb_stmt = (
+                select(Embedding)
+                .where(Embedding.resume_id == latest_resume.id)
+                .order_by(Embedding.created_at.desc())
+                .limit(1)
+            )
+            emb_result = await self.session.execute(emb_stmt)
+            resume_embedding = emb_result.scalar_one_or_none()
+
+            if resume_embedding:
+                # Find top 3 similar jobs using vector similarity
+                # We exclude jobs that are already attached
+                attached_job_ids = [uuid.UUID(j["id"]) for j in formatted_attached_jobs]
+                
+                similar_jobs_query = (
+                    select(
+                        Job,
+                        (1 - Embedding.vector.cosine_distance(resume_embedding.vector)).label("similarity")
+                    )
+                    .join(Embedding, Embedding.job_id == Job.id)
+                    .where(Embedding.embedding_type == "legacy")
+                    .where(Job.id.notin_(attached_job_ids))
+                    .order_by(Embedding.vector.cosine_distance(resume_embedding.vector))
+                    .limit(3)
+                )
+                similar_jobs_result = await self.session.execute(similar_jobs_query)
+                for row in similar_jobs_result.all():
+                    job = row.Job
+                    final_recommended_jobs.append({
+                        "id": str(job.id),
+                        "title": job.title,
+                        "client_name": job.client_name
+                    })
+
+        # Fallback to CandidateRecommendation table if no vector recommendations found
+        if not final_recommended_jobs:
+            recommended_query = select(Job).join(CandidateRecommendation).where(CandidateRecommendation.candidate_id == candidate_id)
+            recommended_result = await self.session.execute(recommended_query)
+            db_recommended_jobs = recommended_result.scalars().all()
+            final_recommended_jobs = [
+                {
+                    "id": str(job.id),
+                    "title": job.title,
+                    "client_name": job.client_name
+                }
+                for job in db_recommended_jobs
+            ]
 
         return {
             "id": str(candidate.id),
@@ -214,14 +264,7 @@ class CandidateRepository:
             "latest_resume_structured_data": latest_resume_structured_data,
             "is_resume_processing": is_resume_processing,
             "attached_jobs": formatted_attached_jobs,
-            "recommended_jobs": [
-                {
-                    "id": str(job.id),
-                    "title": job.title,
-                    "status": "recommended"
-                }
-                for job in recommended_jobs
-            ],
+            "recommended_jobs": final_recommended_jobs,
             "notes": notes
         }
 
@@ -286,6 +329,7 @@ class CandidateRepository:
                 attached_jobs.append({
                     "id": str(job.id),
                     "title": job.title,
+                    "client_name": job.client_name,
                     "status": "attached",
                     "analysis_status": status_data["analysis_status"],
                     "analysis_score": status_data["analysis_score"],

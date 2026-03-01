@@ -41,12 +41,18 @@ class CandidateUpdate(BaseModel):
 class JobBrief(BaseModel):
     id: uuid.UUID
     title: str | None
+    client_name: Optional[str] = None
     status: str | None = "attached"
     analysis_status: Optional[str] = "pending"
     analysis_score: Optional[int] = None
     is_analysis_processing: bool = False
     attached_resume_id: Optional[uuid.UUID] = None
     score: Optional[int] = None # Added for CandidateListBrief
+
+class RecommendedJob(BaseModel):
+    id: uuid.UUID
+    title: str | None
+    client_name: Optional[str] = None
 
 class CandidateListBrief(BaseModel):
     id: uuid.UUID
@@ -72,7 +78,7 @@ class CandidateResponse(BaseModel):
     latest_resume_structured_data: Optional[dict] = None
     is_resume_processing: bool = False
     attached_jobs: list[JobBrief] = []
-    recommended_jobs: list[JobBrief] = []
+    recommended_jobs: list[RecommendedJob] = []
     notes: list[NoteResponse] = []
 
     class Config:

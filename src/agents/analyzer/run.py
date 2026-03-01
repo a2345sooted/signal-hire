@@ -59,6 +59,7 @@ async def run_analyzer_agent(
             "org_id": org_id,
             "resume_data": resume_data,
             "job_data": job_data,
+            "job_notes": job_data.get("notes", []),
             "candidate_notes": candidate_notes,
             "candidate_location": candidate_location,
             "candidate_metadata": candidate_metadata,

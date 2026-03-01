@@ -92,6 +92,7 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
     candidate_metadata = state.get("candidate_metadata")
+    job_notes = state.get("job_notes", [])
     
     candidate_info = f"Location: {candidate_location or 'Not specified'}\n"
     if candidate_metadata:
@@ -105,7 +106,18 @@ async def scorer_node(state: AnalyzerState, config: RunnableConfig = None):
             content = note.get('content', '')
             candidate_info += f"- {content}\n"
     
+    job_info = ""
+    if job_notes:
+        job_info += "### ADDITIONAL JOB CONTEXT / NOTES:\n"
+        for note in job_notes:
+            content = note.get('content', '')
+            job_info += f"- {content}\n"
+        job_info += "\n"
+    
     prompt = f"""You are a precise Scoring Analysis Agent for an ATS. Your objective is to extract the correct inputs for the deterministic scoring tool based on a qualitative analysis of hits and gaps.
+
+    ### JOB CONTEXT:
+    {job_info}
 
     ### CANDIDATE INFO:
     {candidate_info}

@@ -29,6 +29,7 @@ async def hiring_notes_node(state: AnalyzerState, config: RunnableConfig = None)
     minor_gaps = state.get("minor_gaps", [])
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
+    job_notes = state.get("job_notes", [])
     messages = state.get("messages", [])
     analysis_message = messages[-1] if messages else "No analysis message available"
 
@@ -51,19 +52,26 @@ async def hiring_notes_node(state: AnalyzerState, config: RunnableConfig = None)
             content = note.get('content', '')
             candidate_info += f"- {content}\n"
 
+    job_info = f"Job Description: {job_text}\n"
+    if job_notes:
+        job_info += "Additional Job Notes:\n"
+        for note in job_notes:
+            content = note.get('content', '')
+            job_info += f"- {content}\n"
+
     system_prompt = (
         "You are Aline, a professional recruitment consultant at Signal-Hire. "
         "Your goal is to provide a recruiter with 'ammunition' (strategic talking points) to use with the HIRING TEAM to get them interested in this candidate for this specific role. "
         "The audience for these notes is the HIRING MANAGER and the engineering/hiring team. "
         "Focus on the strongest selling points, how they solve the team's pain points, and why they are a top choice despite any minor gaps. "
         "Provide persuasive justifications for moving to interview. "
-        "Utilize any available candidate notes, location, and previous analysis summary to provide deep, strategic insights. "
+        "Utilize any available candidate notes, location, job notes, and previous analysis summary to provide deep, strategic insights. "
         "Your tone should be persuasive, insightful, and strategic. "
         "Provide a concise but powerful list of talking points designed to 'sell' the candidate's value proposition to the hiring team."
     )
 
     user_message = f"""Please provide hiring notes (recruiter ammunition) for this candidate:
-- **JOB DESCRIPTION**: {job_text}
+- **JOB CONTEXT**: {job_info}
 - **RESUME TEXT**: {resume_text}
 - **CANDIDATE INFO**: {candidate_info}
 - **ANALYSIS SUMMARY**: {analysis_message}

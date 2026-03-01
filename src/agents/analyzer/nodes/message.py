@@ -21,6 +21,7 @@ async def generate_analysis_summary(
     candidate_location: str = None,
     candidate_notes: list = None,
     candidate_metadata: dict = None,
+    job_notes: list = None,
     thread_id: str = NO_THREAD_ID
 ) -> str:
     """
@@ -46,6 +47,13 @@ async def generate_analysis_summary(
         for note in candidate_notes:
             content = note.get('content', '')
             candidate_info += f"- {content}\n"
+    
+    job_info = f"Job Description:\n{job_text or 'No JD text available'}\n"
+    if job_notes:
+        job_info += "Additional Job Notes:\n"
+        for note in job_notes:
+            content = note.get('content', '')
+            job_info += f"- {content}\n"
     
     # Use the same structure and role/constraints format as respond.py for better results
     system_prompt = (
@@ -75,7 +83,7 @@ async def generate_analysis_summary(
     )
 
     user_message = f"""Please provide an overall impression for this candidate:
-- **JOB DESCRIPTION**: {job_text}
+- **JOB CONTEXT**: {job_info}
 - **RESUME TEXT**: {resume_text}
 - **CANDIDATE INFO**: {candidate_info}
 
@@ -131,6 +139,7 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
     candidate_location = state.get("candidate_location")
     candidate_notes = state.get("candidate_notes", [])
     candidate_metadata = state.get("candidate_metadata")
+    job_notes = state.get("job_notes", [])
     job_data = state.get("job_data", {})
     job_text = job_data.get('raw_text', 'No JD text available')
     
@@ -149,6 +158,7 @@ async def message_node(state: AnalyzerState, config: RunnableConfig = None):
             candidate_location=candidate_location,
             candidate_notes=candidate_notes,
             candidate_metadata=candidate_metadata,
+            job_notes=job_notes,
             thread_id=clean_id_str
         )
         

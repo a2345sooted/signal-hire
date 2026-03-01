@@ -23,6 +23,7 @@ class AnalyzerState(BaseAgentState):
     # Input
     resume_data: Dict[str, Any]
     job_data: Dict[str, Any]
+    job_notes: Optional[List[Dict[str, Any]]] = None
     candidate_notes: Optional[List[Dict[str, Any]]] = None
     candidate_location: Optional[str] = None
     candidate_metadata: Optional[Dict[str, Any]] = None

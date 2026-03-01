@@ -53,6 +53,11 @@ class AttachedCandidate(BaseModel):
     is_analysis_processing: bool = False
     attached_resume_id: Optional[uuid.UUID] = None
 
+class RecommendedCandidate(BaseModel):
+    id: uuid.UUID
+    name: str
+    email: Optional[str] = None
+
 class JobResponse(BaseModel):
     id: str
     title: str
@@ -75,7 +80,7 @@ class JobResponse(BaseModel):
     owner_email: str = "user@example.com"  # Stubbed
     num_candidates: int = 0 # Stubbed
     attached_candidates: List[AttachedCandidate] = []
-    recommended_candidates: List[dict] = []
+    recommended_candidates: List[RecommendedCandidate] = []
     notes: List[JobNoteResponse] = []
 
     class Config:

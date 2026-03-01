@@ -490,19 +490,58 @@ class JobRepository:
             })
 
         # Get recommended candidates
-        recommended_result = await self.session.execute(
-            select(Candidate).join(JobRecommendation).where(JobRecommendation.job_id == job_id)
-        )
-        recommended_candidates = recommended_result.scalars().all()
-
+        final_recommended_candidates = []
+        
         # Get embeddings
         from ..models.db_models import Embedding
         emb_result = await self.session.execute(
             select(Embedding)
             .where(Embedding.job_id == job_id, Embedding.embedding_type == "legacy")
             .order_by(Embedding.created_at.desc())
+            .limit(1)
         )
-        legacy_embedding = emb_result.scalars().first()
+        legacy_embedding = emb_result.scalar_one_or_none()
+
+        if legacy_embedding:
+            # Find top 3 similar candidates using vector similarity
+            # We exclude candidates that are already attached
+            attached_candidate_ids = [uuid.UUID(c["id"]) for c in formatted_attached_candidates]
+            
+            similar_candidates_query = (
+                select(
+                    Candidate,
+                    (1 - Embedding.vector.cosine_distance(legacy_embedding.vector)).label("similarity")
+                )
+                .join(Resume, Candidate.id == Resume.candidate_id)
+                .join(Embedding, Resume.id == Embedding.resume_id)
+                .where(Embedding.embedding_type == "legacy")
+                .where(Candidate.id.notin_(attached_candidate_ids))
+                .order_by(Embedding.vector.cosine_distance(legacy_embedding.vector))
+                .limit(3)
+            )
+            similar_candidates_result = await self.session.execute(similar_candidates_query)
+            for row in similar_candidates_result.all():
+                c = row.Candidate
+                final_recommended_candidates.append({
+                    "id": str(c.id),
+                    "name": c.name,
+                    "email": c.email
+                })
+
+        # Fallback to JobRecommendation table if no vector recommendations found
+        if not final_recommended_candidates:
+            recommended_result = await self.session.execute(
+                select(Candidate).join(JobRecommendation).where(JobRecommendation.job_id == job_id)
+            )
+            db_recommended_candidates = recommended_result.scalars().all()
+            final_recommended_candidates = [
+                {
+                    "id": str(c.id),
+                    "name": c.name,
+                    "email": c.email
+                }
+                for c in db_recommended_candidates
+            ]
 
         return {
             "id": str(job.id),
@@ -525,14 +564,7 @@ class JobRepository:
             "created_at": job.created_at.isoformat() if job.created_at else None,
             "notes": notes,
             "attached_candidates": formatted_attached_candidates,
-            "recommended_candidates": [
-                {
-                    "id": str(c.id),
-                    "name": c.name,
-                    "email": c.email
-                }
-                for c in recommended_candidates
-            ]
+            "recommended_candidates": final_recommended_candidates
         }
 
 
