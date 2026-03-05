@@ -20,10 +20,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.url.path in ["/health", "/api/health"]:
             return await call_next(request)
 
-        # Skip public invite details endpoint
+        # Skip public invite details endpoint (GET)
         # /api/v1/invites/{invite_id}
         import re
-        if re.match(r"^/api/v1/invites/[0-9a-fA-F-]+$", request.url.path) and request.method == "GET":
+        if re.search(r"/v1/invites/[0-9a-fA-F-]+$", request.url.path) and request.method == "GET":
             return await call_next(request)
 
         # Skip paths that don't start with /api (FastAPI handles 404 for these, but middleware runs first)
