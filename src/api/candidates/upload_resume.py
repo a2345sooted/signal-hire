@@ -90,11 +90,11 @@ async def upload_resume(
                 detail=f"This resume exactly matches the one already on file for this candidate."
             )
         
-        # Check against ALL resumes in system (optional, but keep for now as per previous logic)
-        existing_any = await resume_repo.get_resume_by_hash(text_hash)
+        # Check against ALL resumes in current organization
+        existing_any = await resume_repo.get_resume_by_hash(text_hash, org_id=org.id)
         if existing_any and str(existing_any.get("candidate_id")) != str(candidate_id):
             matching_filename = existing_any.get("original_filename") or "an existing resume"
-            logger.warning(f"Duplicate content detected for candidate {candidate_id}. Matches: {matching_filename}")
+            logger.warning(f"Duplicate content detected for candidate {candidate_id} in org {org.id}. Matches: {matching_filename}")
             raise HTTPException(
                 status_code=409, 
                 detail=f"This resume exactly matches another resume already in the system: {matching_filename}"

@@ -129,19 +129,24 @@ class CandidateRepository:
             "is_analysis_processing": is_processing
         }
 
-    async def get_candidate_by_id(self, candidate_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    async def get_candidate_by_id(self, candidate_id: uuid.UUID, org_id: Optional[uuid.UUID] = None) -> Optional[Dict[str, Any]]:
         """Retrieve a candidate by ID along with their attached jobs and notes"""
         from ..models.db_models import Job, JobAttachment, CandidateRecommendation, Analysis
         from ..agents.resume_processor.run import is_resume_processing_active
 
-        result = await self.session.execute(
-            select(Candidate).where(Candidate.id == candidate_id)
-        )
+        query = select(Candidate).where(Candidate.id == candidate_id)
+        if org_id:
+            query = query.where(Candidate.org_id == org_id)
+            
+        result = await self.session.execute(query)
         candidate = result.scalar_one_or_none()
         
         if not candidate:
             return None
         
+        # Ensure we use the candidate's actual org_id for subsequent queries if not provided
+        effective_org_id = org_id or candidate.org_id
+
         # Get attached jobs
         from ..models.db_models import Job, JobAttachment
         attached_query = (
@@ -149,6 +154,11 @@ class CandidateRepository:
             .join(JobAttachment, Job.id == JobAttachment.job_id)
             .where(JobAttachment.candidate_id == candidate_id)
         )
+        # Note: Attached jobs should naturally belong to the same org, 
+        # but we can add a filter for safety if org_id is provided
+        if effective_org_id:
+            attached_query = attached_query.where(Job.org_id == effective_org_id)
+
         attached_result = await self.session.execute(attached_query)
         attached_rows = attached_result.all()
 
@@ -170,7 +180,7 @@ class CandidateRepository:
         is_resume_processing = await is_resume_processing_active(candidate_id=candidate_id)
 
         # Get notes
-        notes = await self.get_notes(candidate_id)
+        notes = await self.get_notes(candidate_id, org_id=effective_org_id)
 
         # Build attached_jobs with analysis status
         formatted_attached_jobs = []
@@ -223,6 +233,12 @@ class CandidateRepository:
                     .join(Embedding, Embedding.job_id == Job.id)
                     .where(Embedding.embedding_type == "full")
                     .where(Job.id.notin_(attached_job_ids))
+                )
+                if effective_org_id:
+                    similar_jobs_query = similar_jobs_query.where(Job.org_id == effective_org_id)
+                
+                similar_jobs_query = (
+                    similar_jobs_query
                     .order_by(Embedding.vector.cosine_distance(resume_embedding.vector))
                     .limit(3)
                 )
@@ -238,6 +254,8 @@ class CandidateRepository:
         # Fallback to CandidateRecommendation table if no vector recommendations found
         if not final_recommended_jobs:
             recommended_query = select(Job).join(CandidateRecommendation).where(CandidateRecommendation.candidate_id == candidate_id)
+            if effective_org_id:
+                recommended_query = recommended_query.where(Job.org_id == effective_org_id)
             recommended_result = await self.session.execute(recommended_query)
             db_recommended_jobs = recommended_result.scalars().all()
             final_recommended_jobs = [
@@ -443,6 +461,10 @@ class CandidateRepository:
             for row in attached_rows:
                 job = row.Job
                 attached_resume_id = row.resume_id
+                
+                # Verify job belongs to the same org
+                if job.org_id != candidate.org_id:
+                    continue
 
                 # Use common status logic
                 status_data = await self._get_analysis_status_for_attachment(
@@ -541,15 +563,22 @@ class CandidateRepository:
         await self.session.flush()
         return True
 
-    async def get_notes(self, candidate_id: uuid.UUID) -> list[Dict[str, Any]]:
+    async def get_notes(self, candidate_id: uuid.UUID, org_id: Optional[uuid.UUID] = None) -> list[Dict[str, Any]]:
         """Retrieve all notes for a candidate"""
-        from ..models.db_models import User
+        from ..models.db_models import User, Candidate
         
-        result = await self.session.execute(
+        query = (
             select(CandidateNote, User.email)
             .join(User, CandidateNote.user_id == User.id)
+            .join(Candidate, CandidateNote.candidate_id == Candidate.id)
             .where(CandidateNote.candidate_id == candidate_id)
-            .order_by(CandidateNote.created_at.desc())
+        )
+        
+        if org_id:
+            query = query.where(Candidate.org_id == org_id)
+            
+        result = await self.session.execute(
+            query.order_by(CandidateNote.created_at.desc())
         )
         notes = result.all()
         

@@ -57,14 +57,14 @@ async def upload_resume(
     
     resume_repo = ResumeRepository(db)
     
-    # Check for exact duplicate in ALL resumes
+    # Check for exact duplicate in current organization
     if raw_text:
         text_hash = hashlib.sha256(raw_text.encode()).hexdigest()
-        existing_any = await resume_repo.get_resume_by_hash(text_hash)
+        existing_any = await resume_repo.get_resume_by_hash(text_hash, org_id=org.id)
         
         if existing_any:
             matching_filename = existing_any.get("original_filename") or "an existing resume"
-            logger.warning(f"Duplicate resume detected. Matches: {matching_filename}")
+            logger.warning(f"Duplicate resume detected in org {org.id}. Matches: {matching_filename}")
             raise HTTPException(
                 status_code=409, 
                 detail=f"This resume exactly matches another resume already in the system: {matching_filename}"

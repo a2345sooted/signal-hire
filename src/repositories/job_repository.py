@@ -138,7 +138,7 @@ class JobRepository:
             for job in jobs
         ]
 
-    async def get_attached_candidates(self, job_id: uuid.UUID) -> List[Dict[str, Any]]:
+    async def get_attached_candidates(self, job_id: uuid.UUID, org_id: Optional[uuid.UUID] = None) -> List[Dict[str, Any]]:
         """Retrieve all candidates attached to a job"""
         from ..models.db_models import JobAttachment, Candidate
         
@@ -147,6 +147,9 @@ class JobRepository:
             .join(JobAttachment, Candidate.id == JobAttachment.candidate_id)
             .where(JobAttachment.job_id == job_id)
         )
+        if org_id:
+            stmt = stmt.where(Candidate.org_id == org_id)
+            
         result = await self.session.execute(stmt)
         candidates = result.scalars().all()
         
@@ -162,15 +165,22 @@ class JobRepository:
             for candidate in candidates
         ]
 
-    async def get_job_notes(self, job_id: uuid.UUID) -> list[Dict[str, Any]]:
+    async def get_job_notes(self, job_id: uuid.UUID, org_id: Optional[uuid.UUID] = None) -> list[Dict[str, Any]]:
         """Retrieve all notes for a job"""
         from ..models.db_models import User
         
-        result = await self.session.execute(
+        query = (
             select(JobNote, User.email)
             .join(User, JobNote.user_id == User.id)
+            .join(Job, JobNote.job_id == Job.id)
             .where(JobNote.job_id == job_id)
-            .order_by(JobNote.created_at.desc())
+        )
+        
+        if org_id:
+            query = query.where(Job.org_id == org_id)
+            
+        result = await self.session.execute(
+            query.order_by(JobNote.created_at.desc())
         )
         notes = result.all()
         
@@ -431,25 +441,35 @@ class JobRepository:
             "is_analysis_processing": is_processing
         }
 
-    async def get_job_by_id(self, job_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    async def get_job_by_id(self, job_id: uuid.UUID, org_id: Optional[uuid.UUID] = None) -> Optional[Dict[str, Any]]:
         """Retrieve a job by ID"""
-        result = await self.session.execute(
-            select(Job).where(Job.id == job_id)
-        )
+        query = select(Job).where(Job.id == job_id)
+        if org_id:
+            query = query.where(Job.org_id == org_id)
+            
+        result = await self.session.execute(query)
         job = result.scalar_one_or_none()
         
         if not job:
             return None
             
+        # Ensure we use the job's actual org_id for subsequent queries if not provided
+        effective_org_id = org_id or job.org_id
+            
         # Get notes
-        notes = await self.get_job_notes(job_id)
-
+        notes = await self.get_job_notes(job_id, org_id=effective_org_id)
+        
         # Get attached candidates
         from ..models.db_models import JobAttachment, JobRecommendation, Candidate, Analysis
 
-        attached_result = await self.session.execute(
-            select(Candidate).join(JobAttachment).where(JobAttachment.job_id == job_id)
-        )
+        if effective_org_id:
+            attached_result = await self.session.execute(
+                select(Candidate).join(JobAttachment).where(JobAttachment.job_id == job_id).where(Candidate.org_id == effective_org_id)
+            )
+        else:
+            attached_result = await self.session.execute(
+                select(Candidate).join(JobAttachment).where(JobAttachment.job_id == job_id)
+            )
         attached_candidates = attached_result.scalars().all()
 
         # Build attached_candidates with analysis status and score
@@ -463,6 +483,9 @@ class JobRepository:
             .join(JobAttachment, Candidate.id == JobAttachment.candidate_id)
             .where(JobAttachment.job_id == job_id)
         )
+        if effective_org_id:
+            stmt = stmt.where(Candidate.org_id == effective_org_id)
+            
         attached_result = await self.session.execute(stmt)
         attached_rows = attached_result.all()
 
@@ -516,6 +539,13 @@ class JobRepository:
                 .join(Embedding, Resume.id == Embedding.resume_id)
                 .where(Embedding.embedding_type == "full")
                 .where(Candidate.id.notin_(attached_candidate_ids))
+            )
+            
+            if effective_org_id:
+                similar_candidates_query = similar_candidates_query.where(Candidate.org_id == effective_org_id)
+                
+            similar_candidates_query = (
+                similar_candidates_query
                 .order_by(Embedding.vector.cosine_distance(job_embedding.vector))
                 .limit(3)
             )
@@ -530,9 +560,10 @@ class JobRepository:
 
         # Fallback to JobRecommendation table if no vector recommendations found
         if not final_recommended_candidates:
-            recommended_result = await self.session.execute(
-                select(Candidate).join(JobRecommendation).where(JobRecommendation.job_id == job_id)
-            )
+            recommended_query = select(Candidate).join(JobRecommendation).where(JobRecommendation.job_id == job_id)
+            if effective_org_id:
+                recommended_query = recommended_query.where(Candidate.org_id == effective_org_id)
+            recommended_result = await self.session.execute(recommended_query)
             db_recommended_candidates = recommended_result.scalars().all()
             final_recommended_candidates = [
                 {
@@ -572,17 +603,24 @@ class JobRepository:
     async def find_similar_jobs(
         self,
         query_embedding: List[float],
+        org_id: Optional[uuid.UUID] = None,
         limit: int = 5
     ) -> List[Dict[str, Any]]:
         """Find jobs similar to the query embedding using cosine similarity"""
-        result = await self.session.execute(
+        query = (
             select(
                 Job,
                 (1 - Embedding.vector.cosine_distance(query_embedding)).label("similarity")
             )
             .join(Embedding, Embedding.job_id == Job.id)
             .where(Embedding.embedding_type == "full")
-            .order_by(Embedding.vector.cosine_distance(query_embedding))
+        )
+        
+        if org_id:
+            query = query.where(Job.org_id == org_id)
+            
+        result = await self.session.execute(
+            query.order_by(Embedding.vector.cosine_distance(query_embedding))
             .limit(limit)
         )
         
@@ -642,7 +680,7 @@ class JobRepository:
                 logging.getLogger(__name__).warning(f"Failed to generate embedding for search: {e}")
 
         query = select(Job).options(
-                selectinload(Job.resumes),
+                selectinload(Job.resumes).selectinload(Resume.candidate),
                 selectinload(Job.analyses),
                 selectinload(Job.attached_candidates)
             )
@@ -755,7 +793,9 @@ class JobRepository:
                         "is_optimized": resume.is_optimized,
                         "analysis_id": str([a.id for a in job.analyses if a.candidate_id == resume.candidate_id][0]) if any(a.candidate_id == resume.candidate_id for a in job.analyses) else None
                     }
-                    for resume in job.resumes if not resume.is_optimized or str(resume.job_id) == str(job.id)
+                    for resume in job.resumes 
+                    if (not resume.is_optimized or str(resume.job_id) == str(job.id))
+                    and (resume.candidate and resume.candidate.org_id == job.org_id)
                 ]
             }
             for job in jobs

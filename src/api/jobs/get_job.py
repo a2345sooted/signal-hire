@@ -39,13 +39,9 @@ async def get_job(
 
     logger.info(f"Fetching job: {job_id} for org: {org.slug}")
     repo = JobRepository(db)
-    job = await repo.get_job_by_id(job_id)
+    job = await repo.get_job_by_id(job_id, org_id=org.id)
     if not job:
         return {"success": False, "message": "Job not found"}
-    
-    # Verify job belongs to this org
-    if job.get("org_id") and str(job.get("org_id")) != str(org.id):
-        raise HTTPException(status_code=403, detail="Job does not belong to this organization")
     
     # Check if a processing task is active for this job
     is_processing = await is_jd_processing_active(job_id)

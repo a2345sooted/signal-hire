@@ -33,7 +33,7 @@ async def get_candidate(
         raise HTTPException(status_code=403, detail="User does not have access to this organization")
 
     candidate_repo = CandidateRepository(db)
-    candidate_data = await candidate_repo.get_candidate_by_id(candidate_id)
+    candidate_data = await candidate_repo.get_candidate_by_id(candidate_id, org_id=org.id)
     
     if not candidate_data:
         raise HTTPException(status_code=404, detail="Candidate not found")

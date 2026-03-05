@@ -132,18 +132,22 @@ class ResumeRepository:
 
         return resume.id
 
-    async def get_resume_by_hash(self, text_hash: str) -> Optional[Dict[str, Any]]:
-        """Find resume by raw_text hash"""
-        result = await self.session.execute(
-            select(Resume)
-            .where(Resume.raw_text_hash == text_hash)
-            .limit(1)
-        )
+    async def get_resume_by_hash(self, text_hash: str, org_id: Optional[uuid.UUID] = None) -> Optional[Dict[str, Any]]:
+        """Find resume by raw_text hash, optionally filtered by organization"""
+        from ..models.db_models import Candidate
+        
+        stmt = select(Resume).where(Resume.raw_text_hash == text_hash)
+        
+        if org_id:
+            stmt = stmt.join(Candidate, Resume.candidate_id == Candidate.id).where(Candidate.org_id == org_id)
+            
+        result = await self.session.execute(stmt.limit(1))
         resume = result.scalar_one_or_none()
         if not resume:
             return None
         return {
             "id": resume.id,
+            "candidate_id": resume.candidate_id,
             "structured_data": resume.structured_data,
             "original_filename": resume.original_filename
         }
